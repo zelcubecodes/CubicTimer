@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string translatable="false" name="pk_show_bpa_ao5">bpaAo5Enabled</string>
+    <string translatable="false" name="pk_show_bpa_ao12">bpaAo12Enabled</string>
+
+    <bool name="default_bpaAo5Enabled">true</bool>
+    <bool name="default_bpaAo12Enabled">true</bool>
+
+    <string name="bpaAo5EnabledTitle">Session stats : BPA Ao5</string>
+    <string name="bpaAo5EnabledSummary">Show best possible Ao5 on current session statistics</string>
+    <string name="bpaAo12EnabledTitle">Session stats : BPA Ao12</string>
+    <string name="bpaAo12EnabledSummary">Show best possible Ao12 on current session statistics</string>
+</resources>
