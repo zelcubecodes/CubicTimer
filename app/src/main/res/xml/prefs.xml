@@ -247,6 +247,20 @@
                     android:title="@string/sessionStatsAo1000EnabledTitle" />
 
                 <SwitchPreferenceCompat
+                    android:defaultValue="@bool/default_bpaAo5Enabled"
+                    android:dependency="@string/pk_show_session_stats"
+                    android:key="@string/pk_show_bpa_ao5"
+                    android:summary="@string/bpaAo5EnabledSummary"
+                    android:title="@string/bpaAo5EnabledTitle" />
+
+                <SwitchPreferenceCompat
+                    android:defaultValue="@bool/default_bpaAo12Enabled"
+                    android:dependency="@string/pk_show_session_stats"
+                    android:key="@string/pk_show_bpa_ao12"
+                    android:summary="@string/bpaAo12EnabledSummary"
+                    android:title="@string/bpaAo12EnabledTitle" />
+
+                <SwitchPreferenceCompat
                     android:defaultValue="@bool/default_recentResultEnabled"
                     android:key="@string/pk_show_recent_results"
                     android:summary="@string/recentResultEnabledSummary"
