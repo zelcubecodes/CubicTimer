@@ -119,6 +119,7 @@ import no.nordicsemi.android.support.v18.scanner.ScanFilter;
 import no.nordicsemi.android.support.v18.scanner.ScanResult;
 import no.nordicsemi.android.support.v18.scanner.ScanSettings;
 
+import com.hatopigeon.cubictimer.stats.BestPossibleAverage;
 import static com.hatopigeon.cubictimer.stats.AverageCalculatorSuper.tr;
 import static com.hatopigeon.cubictimer.utils.PuzzleUtils.FORMAT_NO_MILLI_TIMER;
 import static com.hatopigeon.cubictimer.utils.PuzzleUtils.FORMAT_SECOND;
@@ -1546,6 +1547,18 @@ public class TimerFragment extends BaseFragment
             stringDetailOther.append(detailTextNamesArray[7]).append(": ").append(sessionMean).append("\n");
             stringDetailOther.append(detailTextNamesArray[8]).append(": ").append(sessionBestTime).append("\n");
             stringDetailOther.append(detailTextNamesArray[9]).append(": ").append(sessionCount);
+
+            // Best possible average (BPA) of the current Ao5 and Ao12: the best average still
+            // reachable if the next solve is as fast as possible. Uses the last 4 and 11 solves.
+            boolean bpaThousandth = Prefs.getBoolean(R.string.pk_enable_thousandth, false);
+            long bpaAo5 = BestPossibleAverage.compute(
+                    stats.getAverageOf(5, true).getRecentTimes(), 5, bpaThousandth);
+            long bpaAo12 = BestPossibleAverage.compute(
+                    stats.getAverageOf(12, true).getRecentTimes(), 12, bpaThousandth);
+            stringDetailOther.append("\n").append("BPA ").append(detailTextNamesArray[1]).append("5: ")
+                    .append(convertTimeToString(bpaAo5, FORMAT_STATS, currentPuzzle));
+            stringDetailOther.append("\n").append("BPA ").append(detailTextNamesArray[2]).append("12: ")
+                    .append(convertTimeToString(bpaAo12, FORMAT_STATS, currentPuzzle));
 
             detailTextOther.setText(stringDetailOther.toString());
 
