@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="drawer_world_records">World records</string>
+    <string name="records_back">Back</string>
+    <string name="records_title">World records history</string>
+    <string name="records_single">Single</string>
+    <string name="records_average">Average</string>
+    <string name="records_event">Event</string>
+    <string name="records_current">CURRENT</string>
+    <string name="records_tie">TIED</string>
+    <string name="records_order_note">Order within this day is not recorded</string>
+    <string name="records_no_data">No record history for this selection.</string>
+    <string name="records_load_error">Could not load the record data.</string>
+    <string name="records_source">Source: %1$s, exported %2$s. This data is bundled with the app. It is not live and does not update by itself.</string>
+</resources>
