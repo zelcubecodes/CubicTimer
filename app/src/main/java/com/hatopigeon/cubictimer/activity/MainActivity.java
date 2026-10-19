@@ -119,6 +119,7 @@ public class MainActivity extends AppCompatActivity
     private static final int SETTINGS_ID      = 5;
     private static final int TRAINER_OLL_ID      = 14;
     private static final int TRAINER_PLL_ID      = 15;
+    private static final int RECORDS_ID          = 16;
 
 
     private static final int REQUEST_SETTING           = 42;
@@ -339,6 +340,13 @@ public class MainActivity extends AppCompatActivity
                                 .withName(R.string.drawer_title_other),
 
                         new PrimaryDrawerItem()
+                                .withName(R.string.drawer_world_records)
+                                .withIcon(R.drawable.ic_outline_timeline_24px)
+                                .withIconTintingEnabled(true)
+                                .withSelectable(false)
+                                .withIdentifier(RECORDS_ID),
+
+                        new PrimaryDrawerItem()
                                 .withName(R.string.drawer_title_export_import)
                                 .withIcon(R.drawable.ic_outline_folder_24px)
                                 .withIconTintingEnabled(true)
@@ -448,6 +456,16 @@ public class MainActivity extends AppCompatActivity
                                                          AlgListFragment.newInstance(DatabaseHandler.SUBSET_PLL),
                                                          "fragment_algs_pll")
                                                 .commit();
+                                    }
+                                });
+                                break;
+
+                            case RECORDS_ID:
+                                mDrawerToggle.runWhenIdle(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        startActivity(new Intent(getApplicationContext(),
+                                                                 RecordsActivity.class));
                                     }
                                 });
                                 break;
