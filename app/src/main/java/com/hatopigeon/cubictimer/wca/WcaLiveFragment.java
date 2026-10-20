@@ -128,6 +128,7 @@ public class WcaLiveFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         ui = new WcaUi(requireContext());
         store = new WcaStore(requireContext());
+        autoRefresh = store.getAutoRefresh();
 
         FrameLayout frame = new FrameLayout(requireContext());
         frame.setLayoutParams(new ViewGroup.LayoutParams(
@@ -483,10 +484,12 @@ public class WcaLiveFragment extends Fragment {
             sortPill.setText(sortByName ? "Sort: name" : "Sort: rank");
             renderResults();
         });
-        autoPill = ui.pill("Auto 30s", false);
+        autoPill = ui.pill("Auto 30s", autoRefresh);
         autoPill.setOnClickListener(v -> {
             autoRefresh = !autoRefresh;
+            store.setAutoRefresh(autoRefresh);
             ui.stylePill(autoPill, autoRefresh);
+            renderResults();
             if (autoRefresh) scheduleAuto(); else handler.removeCallbacks(autoRunnable);
         });
         opts.addView(attemptsPill, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
@@ -683,7 +686,8 @@ public class WcaLiveFragment extends Fragment {
 
     private String statusText() {
         if (liveOk) {
-            return "LIVE  \u00B7  last updated " + time(detailFetchedAt);
+            return "LIVE  \u00B7  last updated " + time(detailFetchedAt)
+                    + (autoRefresh ? "  \u00B7  refreshes every 30s" : "  \u00B7  auto-refresh off");
         }
         if (haveData) {
             return "Could not refresh (" + detailError + "). Showing data from " + time(detailFetchedAt)
@@ -772,12 +776,11 @@ public class WcaLiveFragment extends Fragment {
             });
         }
         boolean hasAverage = "333mbf".equals(ev.id) ? false : true;
-        String myId = store.getMyWcaId();
         for (Row r : rows) {
             Person p = ppl.get(r.personId);
             String name = p == null ? "Competitor " + r.personId : p.name;
             String key = (p != null && !p.wcaId.isEmpty()) ? p.wcaId : name;
-            boolean mine = !myId.isEmpty() && myId.equalsIgnoreCase(key);
+            boolean mine = store.isPinned(key);
             boolean fav = store.isFavoritePerson(key);
             resultsContainer.addView(buildRow(r, p, name, key, ev.id, hasAverage, mine || fav),
                     ui.matchWrap(0, 3, 0, 3));

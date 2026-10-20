@@ -52,7 +52,10 @@ public class WcaResultsFragment extends Fragment {
     private WcaUi ui;
     private WcaStore store;
     private EditText input;
-    private TextView myButton;
+    private LinearLayout pinnedRow;
+    private final java.util.Set<String> pendingComps = new java.util.HashSet<>();
+    private final java.util.Set<String> failedComps = new java.util.HashSet<>();
+    private boolean compInfoChanged = false;
     private TextView status;
     private LinearLayout body;
     private ScrollView scroll;
@@ -103,24 +106,18 @@ public class WcaResultsFragment extends Fragment {
         row.addView(go);
         page.addView(row, ui.matchWrap(0, 0, 0, 8));
 
-        LinearLayout buttons = new LinearLayout(requireContext());
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        myButton = ui.pill("", false);
-        myButton.setOnClickListener(v -> {
-            String id = store.getMyWcaId();
-            if (id.isEmpty()) {
-                status.setText("Open a profile and tap \"Save as my WCA ID\" first.");
-            } else {
-                input.setText(id);
-                loadPerson(id);
-            }
-        });
-        buttons.addView(myButton, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
         TextView records = ui.pill("World records history", false);
         records.setOnClickListener(v -> startActivity(new Intent(requireContext(), RecordsActivity.class)));
-        buttons.addView(records);
-        page.addView(buttons, ui.matchWrap(0, 0, 0, 8));
-        refreshMyButton();
+        page.addView(records, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 8));
+
+        page.addView(ui.text("Pinned competitors", 13, true, 0.8f), ui.matchWrap(4, 0, 4, 4));
+        android.widget.HorizontalScrollView pinScroll = new android.widget.HorizontalScrollView(requireContext());
+        pinScroll.setHorizontalScrollBarEnabled(false);
+        pinnedRow = new LinearLayout(requireContext());
+        pinnedRow.setOrientation(LinearLayout.HORIZONTAL);
+        pinScroll.addView(pinnedRow);
+        page.addView(pinScroll, ui.matchWrap(0, 0, 0, 8));
+        renderPinned();
 
         status = ui.text("", 13, false, 0.85f);
         page.addView(status, ui.matchWrap(4, 0, 4, 6));
@@ -129,21 +126,29 @@ public class WcaResultsFragment extends Fragment {
         body.setOrientation(LinearLayout.VERTICAL);
         page.addView(body, ui.matchWrap(0, 0, 0, 0));
 
-        if (store.getMyWcaId().isEmpty()) {
-            status.setText("Type a WCA ID (like 2023CUAR02) or a name, then tap Search.");
-        } else {
-            status.setText("Tap \"" + myButtonLabel() + "\" to see your results.");
-        }
+        status.setText("Type a WCA ID (like 2023CUAR02) or a name, then tap Search. "
+                + "Open a competitor and tap Pin to keep them here.");
         return scroll;
     }
 
-    private String myButtonLabel() {
-        String id = store.getMyWcaId();
-        return id.isEmpty() ? "My results" : "My results (" + id + ")";
-    }
-
-    private void refreshMyButton() {
-        myButton.setText(myButtonLabel());
+    private void renderPinned() {
+        pinnedRow.removeAllViews();
+        List<String[]> pinned = store.getPinned();
+        if (pinned.isEmpty()) {
+            pinnedRow.addView(ui.text("None yet", 13, false, 0.6f), ui.lp(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 4, 0, 0, 0));
+            return;
+        }
+        for (final String[] p : pinned) {
+            String label = p[1].isEmpty() || p[1].equals(p[0]) ? p[0] : p[1] + " (" + p[0] + ")";
+            TextView chip = ui.pill(label, false);
+            chip.setOnClickListener(v -> {
+                input.setText(p[0]);
+                loadPerson(p[0]);
+            });
+            pinnedRow.addView(chip, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        }
     }
 
     private void hideKeyboard() {
@@ -324,16 +329,23 @@ public class WcaResultsFragment extends Fragment {
                         + recs.optInt("continental") + " continental, " + recs.optInt("national")
                         + " national", 13, false, 0.85f));
             }
-            final String saveId = id;
-            boolean mine = saveId.equalsIgnoreCase(store.getMyWcaId());
-            TextView save = ui.pill(mine ? "This is my WCA ID" : "Save as my WCA ID", mine);
-            save.setOnClickListener(v -> {
-                store.setMyWcaId(saveId);
-                refreshMyButton();
-                ui.stylePill((TextView) v, true);
-                ((TextView) v).setText("This is my WCA ID");
+            final String pinId = id;
+            final String pinName = name;
+            LinearLayout actions = new LinearLayout(requireContext());
+            actions.setOrientation(LinearLayout.HORIZONTAL);
+            final TextView pin = ui.pill(store.isPinned(pinId) ? "Pinned \u2713" : "Pin", store.isPinned(pinId));
+            pin.setOnClickListener(v -> {
+                boolean now = store.togglePinned(pinId, pinName);
+                pin.setText(now ? "Pinned \u2713" : "Pin");
+                ui.stylePill(pin, now);
+                renderPinned();
             });
-            head.addView(save, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 0));
+            actions.addView(pin, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+            TextView refresh = ui.pill("Refresh", false);
+            refresh.setOnClickListener(v -> loadPerson(pinId));
+            actions.addView(refresh);
+            head.addView(actions, ui.matchWrap(0, 8, 0, 0));
             body.addView(head, ui.matchWrap(0, 4, 0, 4));
 
             if (fromCache) {
@@ -413,19 +425,21 @@ public class WcaResultsFragment extends Fragment {
         }
         final Map<String, String[]> info = compInfo;
         List<String> ids = new ArrayList<>(byComp.keySet());
+        fetchMissingComps(ids);
         Collections.sort(ids, new Comparator<String>() {
             @Override
             public int compare(String a, String b) {
-                String da = info != null && info.containsKey(a) ? info.get(a)[1] : "";
-                String db = info != null && info.containsKey(b) ? info.get(b)[1] : "";
-                return db.compareTo(da); // newest first; unknown dates last
+                String da = info != null && info.containsKey(a) ? info.get(a)[1] : "9999-99-99";
+                String db = info != null && info.containsKey(b) ? info.get(b)[1] : "9999-99-99";
+                return db.compareTo(da); // newest first; competitions newer than the export first
             }
         });
 
         body.addView(ui.text("Competition history (" + ids.size() + ")", 18, true, 1f),
                 ui.matchWrap(4, 14, 4, 2));
-        body.addView(ui.text("Competition names and dates come from the WCA results export of "
-                + "2026-10-18. Newer competitions show only their ID.", 12, false, 0.7f),
+        body.addView(ui.text("Results are fetched from the WCA website each time you open or refresh "
+                + "a competitor. The WCA adds a competition here after its results are published. "
+                + "Competitions after 2026-10-18 are looked up online.", 12, false, 0.7f),
                 ui.matchWrap(4, 0, 4, 6));
 
         int limit = Math.min(shown, ids.size());
@@ -440,6 +454,52 @@ public class WcaResultsFragment extends Fragment {
                 render();
             });
             body.addView(more, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 8));
+        }
+    }
+
+    /** Looks up names and dates of competitions that are newer than the bundled export. */
+    private void fetchMissingComps(List<String> ids) {
+        if (compInfo == null) return;
+        int started = 0;
+        for (final String cid : ids) {
+            if (compInfo.containsKey(cid) || pendingComps.contains(cid) || failedComps.contains(cid)) continue;
+            if (started >= 10) break;
+            started++;
+            pendingComps.add(cid);
+            WcaHttp.get(WCA + "/competitions/" + Uri.encode(cid), new WcaHttp.Callback() {
+                @Override
+                public void onSuccess(String text) {
+                    pendingComps.remove(cid);
+                    try {
+                        JSONObject o = new JSONObject(text);
+                        String name = o.optString("name");
+                        String date = o.optString("start_date");
+                        if (!name.isEmpty() && !date.isEmpty()) {
+                            compInfo.put(cid, new String[]{name, date});
+                            compInfoChanged = true;
+                        } else {
+                            failedComps.add(cid);
+                        }
+                    } catch (Exception e) {
+                        failedComps.add(cid);
+                    }
+                    finishCompLookups();
+                }
+
+                @Override
+                public void onError(String message) {
+                    pendingComps.remove(cid);
+                    failedComps.add(cid);
+                    finishCompLookups();
+                }
+            });
+        }
+    }
+
+    private void finishCompLookups() {
+        if (pendingComps.isEmpty() && compInfoChanged && isAdded()) {
+            compInfoChanged = false;
+            render();
         }
     }
 

@@ -25,6 +25,56 @@ public final class WcaStore {
         sp.edit().putString("my_wca_id", id).apply();
     }
 
+    // Pinned competitors are stored as [wcaId, name] pairs. Any number can be pinned.
+    public List<String[]> getPinned() {
+        List<String[]> list = getComps("pinned_people");
+        // Older versions saved one "my WCA ID". Move it into the pinned list once.
+        String legacy = getMyWcaId();
+        if (!legacy.isEmpty()) {
+            boolean there = false;
+            for (String[] c : list) {
+                if (c[0].equalsIgnoreCase(legacy)) there = true;
+            }
+            if (!there) {
+                list.add(new String[]{legacy, legacy});
+                saveComps("pinned_people", list);
+            }
+            setMyWcaId("");
+        }
+        return list;
+    }
+
+    public boolean isPinned(String wcaId) {
+        if (wcaId == null || wcaId.isEmpty()) return false;
+        for (String[] c : getPinned()) {
+            if (c[0].equalsIgnoreCase(wcaId)) return true;
+        }
+        return false;
+    }
+
+    /** Pins the competitor, or unpins them if they are already pinned. Returns true if now pinned. */
+    public boolean togglePinned(String wcaId, String name) {
+        List<String[]> list = getPinned();
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i)[0].equalsIgnoreCase(wcaId)) {
+                list.remove(i);
+                saveComps("pinned_people", list);
+                return false;
+            }
+        }
+        list.add(new String[]{wcaId, name == null || name.isEmpty() ? wcaId : name});
+        saveComps("pinned_people", list);
+        return true;
+    }
+
+    public boolean getAutoRefresh() {
+        return sp.getBoolean("auto_refresh", true);
+    }
+
+    public void setAutoRefresh(boolean on) {
+        sp.edit().putBoolean("auto_refresh", on).apply();
+    }
+
     // Competitions are stored as [wcaId, name] pairs.
     public List<String[]> getComps(String key) {
         List<String[]> out = new ArrayList<>();
