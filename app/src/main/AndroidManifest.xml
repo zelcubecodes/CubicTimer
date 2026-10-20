@@ -70,6 +70,9 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_provider_path" />
         </provider>
+            <activity
+            android:name="com.hatopigeon.cubictimer.activity.RecordsActivity"
+            android:label="@string/records_title" />
     </application>
 
 </manifest>
