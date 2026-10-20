@@ -120,7 +120,7 @@ public class RecordsActivity extends AppCompatActivity {
     // ---------------------------------------------------------------- data
 
     private boolean loadData() {
-        try (InputStream in = getAssets().open("wr_history.json")) {
+        try (InputStream in = getAssets().open("wr_history_v2.json")) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buf = new byte[16384];
             int n;
@@ -148,6 +148,15 @@ public class RecordsActivity extends AppCompatActivity {
             return ev.getJSONArray(mShowAverage ? "average" : "single");
         } catch (Exception e) {
             return new JSONArray();
+        }
+    }
+
+    private String currentNote() {
+        try {
+            return mData.getJSONObject("events").getJSONObject(mEventIds.get(mEventIndex))
+                    .optString("note", "");
+        } catch (Exception e) {
+            return "";
         }
     }
 
@@ -312,7 +321,10 @@ public class RecordsActivity extends AppCompatActivity {
 
         JSONArray records = currentRecords();
         boolean empty = records.length() == 0;
-        mEmptyText.setVisibility(empty ? View.VISIBLE : View.GONE);
+        String note = currentNote();
+        String message = !note.isEmpty() ? note : (empty ? getString(R.string.records_no_data) : "");
+        mEmptyText.setText(message);
+        mEmptyText.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
         mChart.setVisibility(empty ? View.GONE : View.VISIBLE);
         mList.setVisibility(empty ? View.GONE : View.VISIBLE);
         if (empty) {
