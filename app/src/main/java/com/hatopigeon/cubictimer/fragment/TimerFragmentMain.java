@@ -130,10 +130,16 @@ public class TimerFragmentMain extends BaseFragment implements DialogListenerMes
      */
     public static final int GRAPH_PAGE = 2;
 
+    /** The WCA Results page (competitor lookup and previous results). */
+    public static final int RESULTS_PAGE = 3;
+
+    /** The WCA Live page (competitions and live results). */
+    public static final int LIVE_PAGE = 4;
+
     /**
      * The total number of pages.
      */
-    private static final int NUM_PAGES = 3;
+    private static final int NUM_PAGES = 5;
 
     private static final String PUZZLE         = "puzzle";
     private static final String PUZZLE_SUBTYPE = "puzzle_type";
@@ -772,6 +778,10 @@ public class TimerFragmentMain extends BaseFragment implements DialogListenerMes
             return;
         }
 
+        // The WCA pages use the whole screen, so the timer header is hidden on them.
+        mToolbar.setVisibility((pageNum == RESULTS_PAGE || pageNum == LIVE_PAGE)
+                ? View.GONE : View.VISIBLE);
+
         switch (pageNum) {
             case TIMER_PAGE:
                 if (navButtonHistory != null) {
@@ -956,6 +966,10 @@ public class TimerFragmentMain extends BaseFragment implements DialogListenerMes
                 case GRAPH_PAGE:
                     return TimerGraphFragment.newInstance(
                             currentPuzzle, currentPuzzleCategory, history);
+                case RESULTS_PAGE:
+                    return com.hatopigeon.cubictimer.wca.WcaResultsFragment.newInstance();
+                case LIVE_PAGE:
+                    return com.hatopigeon.cubictimer.wca.WcaLiveFragment.newInstance();
             }
             return TimerFragment.newInstance(PuzzleUtils.TYPE_333, "Normal", 5, "", TIMER_MODE_TIMER, TrainerScrambler.TrainerSubset.OLL);
         }
