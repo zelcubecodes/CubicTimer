@@ -41,6 +41,12 @@ public class TimerTabLayout extends TabLayout {
             case TimerFragmentMain.GRAPH_PAGE:
                 tab.setIcon(R.drawable.ic_outline_timeline_24px);
                 break;
+            case TimerFragmentMain.RESULTS_PAGE:
+                tab.setIcon(R.drawable.ic_outline_wca_results_24px);
+                break;
+            case TimerFragmentMain.LIVE_PAGE:
+                tab.setIcon(R.drawable.ic_outline_wca_live_24px);
+                break;
         }
 
         super.addTab(tab, position, setSelected);
