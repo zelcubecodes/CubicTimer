@@ -1,0 +1,121 @@
+package com.hatopigeon.cubictimer.wca;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/** Small persistent store for the WCA screens: saved WCA ID, favorites, recents and cached data. */
+public final class WcaStore {
+    private final SharedPreferences sp;
+
+    public WcaStore(Context c) {
+        sp = c.getApplicationContext().getSharedPreferences("wca_prefs", Context.MODE_PRIVATE);
+    }
+
+    public String getMyWcaId() {
+        return sp.getString("my_wca_id", "");
+    }
+
+    public void setMyWcaId(String id) {
+        sp.edit().putString("my_wca_id", id).apply();
+    }
+
+    // Competitions are stored as [wcaId, name] pairs.
+    public List<String[]> getComps(String key) {
+        List<String[]> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(sp.getString(key, "[]"));
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject o = a.getJSONObject(i);
+                out.add(new String[]{o.optString("id"), o.optString("name")});
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    private void saveComps(String key, List<String[]> list) {
+        JSONArray a = new JSONArray();
+        try {
+            for (String[] c : list) {
+                JSONObject o = new JSONObject();
+                o.put("id", c[0]);
+                o.put("name", c[1]);
+                a.put(o);
+            }
+        } catch (Exception ignored) {
+        }
+        sp.edit().putString(key, a.toString()).apply();
+    }
+
+    public boolean isFavoriteComp(String id) {
+        for (String[] c : getComps("fav_comps")) {
+            if (c[0].equals(id)) return true;
+        }
+        return false;
+    }
+
+    public void toggleFavoriteComp(String id, String name) {
+        List<String[]> list = getComps("fav_comps");
+        boolean removed = false;
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i)[0].equals(id)) {
+                list.remove(i);
+                removed = true;
+                break;
+            }
+        }
+        if (!removed) list.add(0, new String[]{id, name});
+        saveComps("fav_comps", list);
+    }
+
+    public void addRecentComp(String id, String name) {
+        List<String[]> list = getComps("recent_comps");
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i)[0].equals(id)) {
+                list.remove(i);
+                break;
+            }
+        }
+        list.add(0, new String[]{id, name});
+        while (list.size() > 10) list.remove(list.size() - 1);
+        saveComps("recent_comps", list);
+    }
+
+    // Favorite competitors are stored by WCA ID (or by name when there is no WCA ID).
+    public boolean isFavoritePerson(String key) {
+        return sp.getStringSet("fav_people", new java.util.HashSet<String>()).contains(key);
+    }
+
+    public void toggleFavoritePerson(String key) {
+        java.util.Set<String> set = new java.util.HashSet<>(
+                sp.getStringSet("fav_people", new java.util.HashSet<String>()));
+        if (!set.remove(key)) set.add(key);
+        sp.edit().putStringSet("fav_people", set).apply();
+    }
+
+    // Cached person data, so previous results are still readable offline.
+    public void cachePerson(String wcaId, String profileJson, String resultsJson) {
+        sp.edit().putString("person_" + wcaId, profileJson)
+                .putString("results_" + wcaId, resultsJson)
+                .putLong("fetched_" + wcaId, System.currentTimeMillis())
+                .apply();
+    }
+
+    public String cachedProfile(String wcaId) {
+        return sp.getString("person_" + wcaId, null);
+    }
+
+    public String cachedResults(String wcaId) {
+        return sp.getString("results_" + wcaId, null);
+    }
+
+    public long cachedAt(String wcaId) {
+        return sp.getLong("fetched_" + wcaId, 0L);
+    }
+}
