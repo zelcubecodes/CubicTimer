@@ -83,6 +83,18 @@ public final class WcaStore {
         return new String[]{id, name == null || name.isEmpty() ? id : name};
     }
 
+    /** A competitor another screen wants WCA Results to open the next time it is shown. */
+    public void setPendingPerson(String wcaId) {
+        sp.edit().putString("pending_person", wcaId).apply();
+    }
+
+    public String takePendingPerson() {
+        String id = sp.getString("pending_person", "");
+        if (id == null || id.isEmpty()) return null;
+        sp.edit().remove("pending_person").apply();
+        return id;
+    }
+
     public boolean getShowAttempts() {
         return androidx.preference.PreferenceManager.getDefaultSharedPreferences(appCtx)
                 .getBoolean("wca_show_attempts", false);

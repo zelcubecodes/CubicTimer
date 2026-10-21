@@ -63,6 +63,58 @@ public final class WcaNames {
         });
     }
 
+    /** Looks up many competitors with one request; any the batch misses are looked up one by one. */
+    public static void lookupBatch(final java.util.List<String> ids, final Listener l) {
+        final java.util.List<String> todo = new java.util.ArrayList<>();
+        for (String id : ids) {
+            String[] known = cached(id);
+            if (known != null) l.onName(id, known[0], known[1]);
+            else if (!todo.contains(id)) todo.add(id);
+        }
+        if (todo.isEmpty()) return;
+        StringBuilder sb = new StringBuilder();
+        for (String id : todo) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(id);
+        }
+        WcaHttp.get(WCA + "/persons?wca_ids=" + sb, new WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String body) {
+                try {
+                    org.json.JSONArray arr;
+                    String t = body.trim();
+                    if (t.startsWith("[")) {
+                        arr = new org.json.JSONArray(t);
+                    } else {
+                        JSONObject o = new JSONObject(t);
+                        arr = o.optJSONArray("result");
+                        if (arr == null) arr = o.optJSONArray("persons");
+                    }
+                    if (arr != null) {
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject e = arr.getJSONObject(i);
+                            JSONObject p = e.optJSONObject("person") != null ? e.optJSONObject("person") : e;
+                            String id = p.optString("wca_id", p.optString("id", ""));
+                            String name = p.optString("name", "");
+                            if (id.isEmpty() || name.isEmpty()) continue;
+                            String[] v = {name, p.optString("country_iso2", "")};
+                            synchronized (WcaNames.class) { CACHE.put(id, v); }
+                            l.onName(id, v[0], v[1]);
+                        }
+                    }
+                } catch (Exception ignored) {
+                    // fall through to the one-by-one lookups below
+                }
+                for (String id : todo) if (cached(id) == null) lookup(id, l, 0);
+            }
+
+            @Override
+            public void onError(String message) {
+                for (String id : todo) lookup(id, l, 0);
+            }
+        });
+    }
+
     /** Calls the listener on the main thread, straight away if the name is already known. */
     public static void lookup(final String wcaId, final Listener l) {
         lookup(wcaId, l, 0);

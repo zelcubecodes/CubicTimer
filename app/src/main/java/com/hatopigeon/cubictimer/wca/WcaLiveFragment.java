@@ -25,6 +25,7 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
 import com.hatopigeon.cubicify.R;
+import com.hatopigeon.cubictimer.fragment.TimerFragmentMain;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -1290,7 +1291,7 @@ public class WcaLiveFragment extends Fragment {
 
         card.setOnClickListener(v -> showPersonResults(r.personId, p, name));
         card.setOnLongClickListener(v -> {
-            store.toggleFavoritePerson(key);
+            toggleStar(p, name, key);
             renderResults();
             return true;
         });
@@ -1312,12 +1313,20 @@ public class WcaLiveFragment extends Fragment {
         TextView title = ui.text((flag.isEmpty() ? "" : flag + " ") + name, 18, true, 1f);
         head.addView(title, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 4, 0));
         ((LinearLayout.LayoutParams) title.getLayoutParams()).weight = 1f;
-        final ImageView star = ui.iconButton(store.isFavoritePerson(key)
+        if (p != null && !p.wcaId.isEmpty()) {
+            final String openId = p.wcaId;
+            title.setPaintFlags(title.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+            title.setOnClickListener(v -> {
+                if (holder[0] != null) holder[0].dismiss();
+                openInResults(openId);
+            });
+        }
+        final ImageView star = ui.iconButton(isStarred(p, key)
                 ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText);
         star.setContentDescription("Favorite");
         star.setOnClickListener(v -> {
-            store.toggleFavoritePerson(key);
-            star.setImageDrawable(ui.tinted(store.isFavoritePerson(key)
+            boolean now = toggleStar(p, name, key);
+            star.setImageDrawable(ui.tinted(now
                     ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText));
             renderResults();
         });
@@ -1405,11 +1414,11 @@ public class WcaLiveFragment extends Fragment {
             rk.setTextColor(android.graphics.Color.BLACK);
         }
         row.addView(rk, ui.lp(ui.dp(36), ui.dp(34), 6, 0, 6, 0));
-        TextView rd = ui.text(round, 14, header, 1f);
+        TextView rd = ui.text(round, 13, header, 1f);
         row.addView(rd, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
         ((LinearLayout.LayoutParams) rd.getLayoutParams()).weight = 1f;
-        row.addView(cellOf(avg, avgTag, header, true), ui.lp(ui.dp(84), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
-        row.addView(cellOf(best, bestTag, header, false), ui.lp(ui.dp(84), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+        row.addView(cellOf(avg, avgTag, header, true), ui.lp(ui.dp(100), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+        row.addView(cellOf(best, bestTag, header, false), ui.lp(ui.dp(100), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
         return row;
     }
 
@@ -1417,7 +1426,7 @@ public class WcaLiveFragment extends Fragment {
         if (header) {
             TextView t = ui.text(value, 14, true, 1f);
             t.setGravity(Gravity.END);
-            t.setPadding(0, 0, ui.dp(13), 0);
+            t.setPadding(0, 0, ui.dp(28), 0);
             return t;
         }
         if (value.isEmpty()) return new View(requireContext());
@@ -1519,5 +1528,30 @@ public class WcaLiveFragment extends Fragment {
         android.app.Dialog d = ui.dialog(root);
         holder[0] = d;
         d.show();
+    }
+
+    private boolean isStarred(Person p, String key) {
+        String wcaId = p != null ? p.wcaId : "";
+        return store.isFavoritePerson(key) || (!wcaId.isEmpty() && store.isPinned(wcaId));
+    }
+
+    /** Stars or unstars a competitor here and in WCA Results at the same time. */
+    private boolean toggleStar(Person p, String name, String key) {
+        String wcaId = p != null ? p.wcaId : "";
+        boolean now = !isStarred(p, key);
+        if (store.isFavoritePerson(key) != now) store.toggleFavoritePerson(key);
+        if (!wcaId.isEmpty() && store.isPinned(wcaId) != now) store.togglePinned(wcaId, name);
+        return now;
+    }
+
+    /** Switches to the WCA Results tab and opens this competitor there. */
+    private void openInResults(String wcaId) {
+        store.setPendingPerson(wcaId);
+        View pager = requireActivity().findViewById(R.id.pager);
+        if (pager instanceof androidx.viewpager.widget.ViewPager) {
+            ((androidx.viewpager.widget.ViewPager) pager).setCurrentItem(TimerFragmentMain.RESULTS_PAGE, true);
+        } else {
+            store.takePendingPerson();
+        }
     }
 }
