@@ -384,6 +384,18 @@
 
     <Preference android:layout="@layout/divider_preference_category" />
 
+    <PreferenceCategory android:title="@string/pref_category_title_wca">
+
+        <SwitchPreferenceCompat
+            android:defaultValue="true"
+            android:key="wca_auto_refresh"
+            android:summary="@string/pref_summary_wca_auto_refresh"
+            android:title="@string/pref_title_wca_auto_refresh" />
+
+    </PreferenceCategory>
+
+    <Preference android:layout="@layout/divider_preference_category" />
+
     <PreferenceCategory android:title="@string/pref_category_title_other">
 
         <PreferenceScreen
