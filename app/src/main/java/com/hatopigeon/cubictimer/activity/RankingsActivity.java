@@ -256,13 +256,32 @@ public class RankingsActivity extends AppCompatActivity {
     private void showRegionPicker() {
         final android.app.Dialog d = new android.app.Dialog(this);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackground(rounded(itemBg, dp(20)));
+        root.setPadding(dp(8), dp(8), dp(8), dp(8));
+
+        final android.widget.EditText search = new android.widget.EditText(this);
+        search.setHint("Search region");
+        search.setSingleLine(true);
+        search.setTextColor(itemText);
+        search.setHintTextColor((itemText & 0x00FFFFFF) | 0x88000000);
+        search.setPadding(dp(14), dp(10), dp(14), dp(10));
+        search.setBackground(rounded(highlight, dp(8)));
+        final Drawable clear = eventIconRes(R.drawable.ic_wca_close, 20);
+        search.setCompoundDrawablePadding(dp(8));
+        root.addView(search, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
         ScrollView sv = new ScrollView(this);
-        LinearLayout box = new LinearLayout(this);
+        final LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(8), dp(8), dp(8), dp(8));
         sv.addView(box);
-        sv.setBackground(rounded(itemBg, dp(20)));
-        List<String[]> opts = new ArrayList<>();
+        LinearLayout.LayoutParams svp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
+        svp.topMargin = dp(8);
+        root.addView(sv, svp);
+
+        final List<String[]> opts = new ArrayList<>();
         for (String[] c : CONTINENTS) opts.add(c);
         List<String[]> countries = new ArrayList<>();
         for (String code : Locale.getISOCountries()) {
@@ -276,32 +295,76 @@ public class RankingsActivity extends AppCompatActivity {
             }
         });
         opts.addAll(countries);
-        for (final String[] o : opts) {
-            String flag = o[0].length() == 2 ? WcaFlags.emoji(o[0]) : "";
-            TextView row = tv((flag.isEmpty() ? "" : flag + "  ") + o[1], 16, o[0].equals(region), itemText);
-            row.setPadding(dp(14), dp(10), dp(14), dp(10));
-            row.setMinHeight(dp(46));
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            if (o[0].equals(region)) row.setBackground(rounded(highlight, dp(12)));
-            row.setOnClickListener(v -> {
-                region = o[0];
-                regionName = o[1];
-                shown = PAGE;
-                renderControls();
-                load();
-                d.dismiss();
-            });
-            box.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT));
-        }
-        d.setContentView(sv);
+
+        final Runnable fill = new Runnable() {
+            @Override
+            public void run() {
+                box.removeAllViews();
+                String q = search.getText().toString().trim().toLowerCase(Locale.ENGLISH);
+                for (final String[] o : opts) {
+                    if (!q.isEmpty() && !o[1].toLowerCase(Locale.ENGLISH).contains(q)
+                            && !o[0].toLowerCase(Locale.ENGLISH).equals(q)) continue;
+                    String flag = o[0].length() == 2 ? WcaFlags.emoji(o[0]) : "";
+                    TextView row = tv((flag.isEmpty() ? "" : flag + "  ") + o[1], 16, o[0].equals(region), itemText);
+                    row.setPadding(dp(14), dp(10), dp(14), dp(10));
+                    row.setMinHeight(dp(46));
+                    row.setGravity(Gravity.CENTER_VERTICAL);
+                    if (o[0].equals(region)) row.setBackground(rounded(highlight, dp(12)));
+                    row.setOnClickListener(v -> {
+                        region = o[0];
+                        regionName = o[1];
+                        shown = PAGE;
+                        renderControls();
+                        load();
+                        d.dismiss();
+                    });
+                    box.addView(row, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
+                }
+                if (box.getChildCount() == 0) {
+                    box.addView(tv("No region found", 15, false, itemText));
+                    box.getChildAt(0).setPadding(dp(14), dp(14), dp(14), dp(14));
+                }
+            }
+        };
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence x, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence x, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable e) {
+                search.setCompoundDrawablesRelative(null, null, e.length() > 0 ? clear : null, null);
+                fill.run();
+            }
+        });
+        search.setOnTouchListener((v, ev) -> {
+            if (ev.getAction() == android.view.MotionEvent.ACTION_UP && search.getText().length() > 0) {
+                Drawable[] dr = search.getCompoundDrawablesRelative();
+                if (dr[2] != null && ev.getX() >= search.getWidth() - search.getPaddingEnd()
+                        - dr[2].getBounds().width() - dp(12)) {
+                    search.setText("");
+                    return true;
+                }
+            }
+            return false;
+        });
+        fill.run();
+        d.setContentView(root);
         if (d.getWindow() != null) {
             d.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
             d.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.9f),
                     (int) (getResources().getDisplayMetrics().heightPixels * 0.8f));
+            d.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         d.setCanceledOnTouchOutside(true);
         d.show();
+    }
+
+    private Drawable eventIconRes(int res, int sizeDp) {
+        Drawable d = androidx.core.content.ContextCompat.getDrawable(this, res);
+        if (d == null) return null;
+        d = androidx.core.graphics.drawable.DrawableCompat.wrap(d.mutate());
+        androidx.core.graphics.drawable.DrawableCompat.setTint(d, itemText);
+        d.setBounds(0, 0, dp(sizeDp), dp(sizeDp));
+        return d;
     }
 
     // ---------------------------------------------------------------- data
