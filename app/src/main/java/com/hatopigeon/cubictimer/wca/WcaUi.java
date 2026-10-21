@@ -177,18 +177,39 @@ public final class WcaUi {
         return b;
     }
 
-    /** A result with its record badge at the top right, like WCA Live. Space is always kept for the badge. */
-    public FrameLayout resultCell(String label, String value, String tag, float sp, boolean bold) {
-        FrameLayout f = new FrameLayout(ctx);
+    /** Text color of a result that is a record: WR red, CR amber, NR green, PR blue. */
+    public static int valueColor(String tag) {
+        switch (tag) {
+            case "WR": return 0xFFE53935;
+            case "NR": return 0xFF00C853;
+            case "PR": return 0xFF2196F3;
+            default: return 0xFFF9A825;
+        }
+    }
+
+    /**
+     * A result with its record badge just after the number, at the top. The badge has its own
+     * slot, so it never covers a digit and the numbers still line up between rows.
+     */
+    public LinearLayout resultCell(String label, String value, String tag, float sp, boolean bold) {
+        LinearLayout f = new LinearLayout(ctx);
+        f.setOrientation(LinearLayout.HORIZONTAL);
+        f.setGravity(Gravity.END);
         TextView t = text(label.isEmpty() ? value : label + " " + value, sp, bold, 1f);
         t.setGravity(Gravity.END);
-        t.setPadding(0, dp(7), dp(13), 0);
-        f.addView(t, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END));
-        if (tag != null && !tag.isEmpty()) {
-            f.addView(badge(tag), new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END | Gravity.TOP));
+        t.setPadding(0, dp(7), 0, 0);
+        boolean has = tag != null && !tag.isEmpty();
+        if (has) t.setTextColor(valueColor(tag.toUpperCase(java.util.Locale.US)));
+        f.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        FrameLayout slot = new FrameLayout(ctx);
+        if (has) {
+            FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
+            bp.leftMargin = dp(2);
+            slot.addView(badge(tag), bp);
         }
+        f.addView(slot, new LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT));
         return f;
     }
 

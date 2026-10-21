@@ -65,6 +65,10 @@ public final class WcaNames {
 
     /** Calls the listener on the main thread, straight away if the name is already known. */
     public static void lookup(final String wcaId, final Listener l) {
+        lookup(wcaId, l, 0);
+    }
+
+    private static void lookup(final String wcaId, final Listener l, final int attempt) {
         String[] known = cached(wcaId);
         if (known != null) {
             l.onName(wcaId, known[0], known[1]);
@@ -72,13 +76,12 @@ public final class WcaNames {
         }
         synchronized (WcaNames.class) {
             if (!PENDING.add(wcaId)) {
-                // already on its way; try again shortly
-                WcaHttp.background(() -> {
-                    try { Thread.sleep(700); } catch (InterruptedException ignored) {}
-                }, () -> {
+                // already on its way; check again shortly
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                     String[] k = cached(wcaId);
                     if (k != null) l.onName(wcaId, k[0], k[1]);
-                });
+                    else if (attempt < 6) lookup(wcaId, l, attempt + 1);
+                }, 900);
                 return;
             }
         }
@@ -94,13 +97,21 @@ public final class WcaNames {
                     }
                     l.onName(wcaId, v[0], v[1]);
                 } catch (Exception e) {
-                    synchronized (WcaNames.class) { PENDING.remove(wcaId); }
+                    retry();
                 }
             }
 
             @Override
             public void onError(String message) {
+                retry();
+            }
+
+            // The WCA site sometimes refuses a burst of requests, so try again a little later.
+            private void retry() {
                 synchronized (WcaNames.class) { PENDING.remove(wcaId); }
+                if (attempt >= 4) return;
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        () -> lookup(wcaId, l, attempt + 1), 1500L * (attempt + 1));
             }
         });
     }

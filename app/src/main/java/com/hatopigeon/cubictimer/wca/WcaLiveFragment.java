@@ -116,6 +116,8 @@ public class WcaLiveFragment extends Fragment {
     private final List<TextView> tabTexts = new ArrayList<>();
     private final List<View> tabLines = new ArrayList<>();
     private String searchQuery = null;
+    private Ev curEv;
+    private Round curRd;
     private LinearLayout suggestBox;
     private Runnable suggestRunnable = () -> { };
     private int suggestToken = 0;
@@ -319,12 +321,30 @@ public class WcaLiveFragment extends Fragment {
         LinearLayout homeColumn = new LinearLayout(requireContext());
         homeColumn.setOrientation(LinearLayout.VERTICAL);
         // The competitions have their own scroller, so Recent records stays reachable underneath.
-        ScrollView listScroll = new ScrollView(requireContext());
+        ScrollView listScroll = new ScrollView(requireContext()) {
+            private float lastY;
+
+            @Override
+            public boolean dispatchTouchEvent(android.view.MotionEvent ev) {
+                switch (ev.getActionMasked()) {
+                    case android.view.MotionEvent.ACTION_DOWN:
+                        lastY = ev.getY();
+                        getParent().requestDisallowInterceptTouchEvent(true);
+                        break;
+                    case android.view.MotionEvent.ACTION_MOVE:
+                        float dy = ev.getY() - lastY;
+                        lastY = ev.getY();
+                        // at the top or bottom of this list, let the page scroll instead
+                        boolean canMove = canScrollVertically(dy < 0 ? 1 : -1);
+                        getParent().requestDisallowInterceptTouchEvent(canMove);
+                        break;
+                    default:
+                        break;
+                }
+                return super.dispatchTouchEvent(ev);
+            }
+        };
         listScroll.setVerticalScrollBarEnabled(false);
-        listScroll.setOnTouchListener((v, ev) -> {
-            v.getParent().requestDisallowInterceptTouchEvent(true);
-            return false;
-        });
         listScroll.addView(listContainer, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         homeColumn.addView(listScroll, new LinearLayout.LayoutParams(
@@ -1180,6 +1200,8 @@ public class WcaLiveFragment extends Fragment {
         }
         boolean hasAverage = "333mbf".equals(ev.id) ? false : true;
         boolean finalRound = roundIndex == ev.rounds.size() - 1;
+        curEv = ev;
+        curRd = ev.rounds.get(roundIndex);
         for (Row r : rows) {
             Person p = ppl.get(r.personId);
             String name = p == null ? "Competitor " + r.personId : p.name;
@@ -1249,6 +1271,9 @@ public class WcaLiveFragment extends Fragment {
         if (!best.isEmpty()) {
             right.addView(ui.resultCell("best", best, r.singleTag, 13, false));
         }
+        final Ev evNow = curEv;
+        final Round rdNow = curRd;
+        right.setOnClickListener(v -> showAttemptsDialog(p, name, evNow, rdNow, r));
         line.addView(right);
         card.addView(line);
 
@@ -1341,8 +1366,13 @@ public class WcaLiveFragment extends Fragment {
                             || (isFinal && row.ranking >= 1 && row.ranking <= 3 && row.best > 0);
                     String avg = "333mbf".equals(ev.id) ? "" : WcaFormat.formatResult(row.average, ev.id, true);
                     String best = WcaFormat.formatResult(row.best, ev.id, false);
-                    table.addView(personRow(null, row.ranking > 0 ? String.valueOf(row.ranking) : "-",
-                            roundLabel(ev, rd), avg, best, row.avgTag, row.singleTag, green, false));
+                    View pr = personRow(null, row.ranking > 0 ? String.valueOf(row.ranking) : "-",
+                            roundLabel(ev, rd), avg, best, row.avgTag, row.singleTag, green, false);
+                    final Ev evF = ev;
+                    final Round rdF = rd;
+                    final Row rowF = row;
+                    pr.setOnClickListener(v -> showAttemptsDialog(p, name, evF, rdF, rowF));
+                    table.addView(pr);
                 }
             }
         }
@@ -1392,5 +1422,102 @@ public class WcaLiveFragment extends Fragment {
         }
         if (value.isEmpty()) return new View(requireContext());
         return ui.resultCell("", value, tag, 14, bold);
+    }
+
+    /** The solves behind one result; on a five-solve average the best and worst are in brackets. */
+    private static String[] attemptStrings(long[] v, String ev) {
+        int n = v.length;
+        String[] out = new String[n];
+        boolean allSet = n > 0;
+        for (long x : v) if (x == 0) allSet = false;
+        int bi = -1, wi = -1;
+        if (n == 5 && allSet && !"333mbf".equals(ev)) {
+            for (int i = 0; i < n; i++) if (v[i] > 0 && (bi < 0 || v[i] < v[bi])) bi = i;
+            for (int i = n - 1; i >= 0; i--) {
+                if (i == bi) continue;
+                if (wi < 0) { wi = i; continue; }
+                boolean iBad = v[i] < 0, wBad = v[wi] < 0;
+                if (iBad && !wBad) wi = i;
+                else if (iBad == wBad && !iBad && v[i] > v[wi]) wi = i;
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            String t = WcaFormat.formatResult(v[i], ev, false);
+            out[i] = t.isEmpty() ? "" : (i == bi || i == wi ? "(" + t + ")" : t);
+        }
+        return out;
+    }
+
+    /** A pop-up with the average, the best and every solve of one result. */
+    private void showAttemptsDialog(Person p, String name, Ev ev, Round rd, Row row) {
+        if (ev == null || rd == null) return;
+        final android.app.Dialog[] holder = new android.app.Dialog[1];
+        LinearLayout root = new LinearLayout(requireContext());
+        root.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout head = new LinearLayout(requireContext());
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(ui.dp(20), ui.dp(10), ui.dp(8), ui.dp(2));
+        String flag = p == null ? "" : WcaFlags.emoji(p.iso);
+        TextView title = ui.text((flag.isEmpty() ? "" : flag + " ") + name, 18, true, 1f);
+        head.addView(title, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 4, 0));
+        ((LinearLayout.LayoutParams) title.getLayoutParams()).weight = 1f;
+        ImageView close = ui.iconButton(R.drawable.ic_wca_close, 24, ui.itemText);
+        close.setContentDescription("Close");
+        close.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].dismiss();
+        });
+        head.addView(close);
+        root.addView(head);
+
+        LinearLayout box = new LinearLayout(requireContext());
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(18));
+        TextView sub = ui.text(WcaFormat.eventName(ev.id) + "  \u00B7  " + roundLabel(ev, rd), 14, false, 0.85f);
+        ui.setEventIcon(sub, ev.id, 18, ui.text);
+        box.addView(sub, ui.matchWrap(0, 0, 0, 10));
+
+        boolean mbf = "333mbf".equals(ev.id);
+        String avg = mbf ? "" : WcaFormat.formatResult(row.average, ev.id, true);
+        String best = WcaFormat.formatResult(row.best, ev.id, false);
+        if (!avg.isEmpty()) {
+            box.addView(ui.text("Average", 13, false, 0.7f));
+            LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            box.addView(ui.resultCell("", avg, row.avgTag, 26, true), alp);
+        }
+        if (!best.isEmpty()) {
+            box.addView(ui.text("Best", 13, false, 0.7f), ui.matchWrap(0, 6, 0, 0));
+            LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            box.addView(ui.resultCell("", best, row.singleTag, 20, false), blp);
+        }
+        box.addView(ui.text("Solves", 13, false, 0.7f), ui.matchWrap(0, 12, 0, 4));
+        String[] at = attemptStrings(row.attempts, ev.id);
+        LinearLayout list = new LinearLayout(requireContext());
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setBackground(ui.rounded(
+                androidx.core.graphics.ColorUtils.blendARGB(ui.itemBg, ui.itemText, 0.06f), ui.dp(8)));
+        boolean any = false;
+        for (int i = 0; i < at.length; i++) {
+            if (at[i].isEmpty()) continue;
+            any = true;
+            LinearLayout line = new LinearLayout(requireContext());
+            line.setOrientation(LinearLayout.HORIZONTAL);
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8));
+            line.addView(ui.text(String.valueOf(i + 1), 14, false, 0.6f),
+                    ui.lp(ui.dp(30), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+            line.addView(ui.text(at[i], 18, true, 1f));
+            list.addView(line);
+        }
+        if (!any) list.addView(ui.text("No solves recorded yet.", 14, false, 0.8f), ui.matchWrap(14, 10, 14, 10));
+        box.addView(list);
+        root.addView(box);
+
+        android.app.Dialog d = ui.dialog(root);
+        holder[0] = d;
+        d.show();
     }
 }

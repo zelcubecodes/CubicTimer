@@ -636,7 +636,7 @@ public class WcaResultsFragment extends Fragment {
 
     private View resultCell(String value, String tag, int widthDp) {
         if (value.isEmpty()) return cell("", widthDp, false);
-        android.widget.FrameLayout f = ui.resultCell("", value, tag, 14, true);
+        LinearLayout f = ui.resultCell("", value, tag, 14, true);
         f.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT));
         return f;
     }
