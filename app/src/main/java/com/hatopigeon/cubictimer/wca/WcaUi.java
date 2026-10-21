@@ -207,8 +207,8 @@ public final class WcaUi {
 
     /** A status line that only shows (with its background) while it has text. */
     public TextView status(float sp) {
-        final TextView t = text("", sp, false, 1f);
-        styleLabel(t);
+        final TextView t = text("", sp, false, 0.8f);
+        t.setPadding(dp(4), dp(2), dp(4), dp(2));
         t.setVisibility(View.GONE);
         t.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}

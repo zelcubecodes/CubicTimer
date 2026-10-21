@@ -24,6 +24,45 @@ public final class WcaNames {
         return CACHE.get(wcaId);
     }
 
+    public interface CountryListener {
+        void onCountry(String compId, String iso2);
+    }
+
+    private static final Map<String, String> COMP_COUNTRY = new HashMap<>();
+    private static final Set<String> COMP_PENDING = new HashSet<>();
+
+    /** Looks up the country (ISO code) a competition is held in, from the WCA website. */
+    public static void lookupCompCountry(final String compId, final CountryListener l) {
+        synchronized (WcaNames.class) {
+            String known = COMP_COUNTRY.get(compId);
+            if (known != null) {
+                l.onCountry(compId, known);
+                return;
+            }
+            if (!COMP_PENDING.add(compId)) return;
+        }
+        WcaHttp.get(WCA + "/competitions/" + compId, new WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String body) {
+                String iso = "";
+                try {
+                    iso = new JSONObject(body).optString("country_iso2", "");
+                } catch (Exception ignored) {
+                }
+                synchronized (WcaNames.class) {
+                    COMP_COUNTRY.put(compId, iso);
+                    COMP_PENDING.remove(compId);
+                }
+                l.onCountry(compId, iso);
+            }
+
+            @Override
+            public void onError(String message) {
+                synchronized (WcaNames.class) { COMP_PENDING.remove(compId); }
+            }
+        });
+    }
+
     /** Calls the listener on the main thread, straight away if the name is already known. */
     public static void lookup(final String wcaId, final Listener l) {
         String[] known = cached(wcaId);

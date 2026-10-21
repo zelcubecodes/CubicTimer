@@ -113,6 +113,19 @@ public class WcaLiveFragment extends Fragment {
     private int eventIndex = 0;
     private int roundIndex = 0;
     private boolean showAttempts = false;
+    private final List<TextView> tabTexts = new ArrayList<>();
+    private final List<View> tabLines = new ArrayList<>();
+    private String searchQuery = null;
+    private int visibleCount = 30;
+    private LinearLayout recordsBox;
+    private boolean recordsLoading, recordsLoaded;
+    private String recordsError = null;
+    private int recordsShown = 10;
+    private final List<String[]> records = new ArrayList<>();
+    private static final String REC_Q1 = "{ recentRecords { id tag type attemptResult result { person { name "
+            + "country { iso2 name } } round { competitionEvent { event { id name } } } } } }";
+    private static final String REC_Q2 = "{ recentRecords { tag type attemptResult result { person { name "
+            + "country { name } } round { competitionEvent { event { id name } } } } } }";
     private boolean sortByName = false;
     private boolean autoRefresh = false;
     private boolean fetching = false;
@@ -210,6 +223,7 @@ public class WcaLiveFragment extends Fragment {
         } else if (listError != null && !listLoading && WcaHttp.isOnline(requireContext())) {
             loadCompetitions(null);
         }
+        if (!inDetail && !recordsLoaded && !recordsLoading) loadRecords();
     }
 
     private void updateBack() {
@@ -248,21 +262,34 @@ public class WcaLiveFragment extends Fragment {
         searchRow.addView(go);
         page.addView(searchRow, ui.matchWrap(0, 0, 0, 8));
 
-        LinearLayout pills = new LinearLayout(requireContext());
-        pills.setOrientation(LinearLayout.HORIZONTAL);
-        String[] names = {"All", "Favorites", "Recent"};
+        LinearLayout tabCard = new LinearLayout(requireContext());
+        tabCard.setOrientation(LinearLayout.HORIZONTAL);
+        tabCard.setBackground(ui.rounded(ui.itemBg, ui.dp(8)));
+        String[] names = {"UPCOMING", "PAST MONTH", "FAVORITES", "RECENT"};
         for (int i = 0; i < names.length; i++) {
             final int mode = i;
-            TextView p = ui.pill(names[i], i == 0);
-            p.setOnClickListener(v -> {
+            LinearLayout col = new LinearLayout(requireContext());
+            col.setOrientation(LinearLayout.VERTICAL);
+            TextView t = ui.text(names[i], 12, true, 1f);
+            t.setTextColor(ui.itemText);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(ui.dp(4), ui.dp(14), ui.dp(4), ui.dp(12));
+            View line = new View(requireContext());
+            col.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+            col.addView(line, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(3)));
+            col.setOnClickListener(v -> {
                 filterMode = mode;
-                for (int k = 0; k < filterPills.size(); k++) ui.stylePill(filterPills.get(k), k == mode);
+                visibleCount = 30;
+                styleTabs();
                 renderList();
             });
-            filterPills.add(p);
-            pills.addView(p, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+            tabTexts.add(t);
+            tabLines.add(line);
+            tabCard.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         }
-        page.addView(pills, ui.matchWrap(0, 0, 0, 8));
+        styleTabs();
+        page.addView(tabCard, ui.matchWrap(0, 0, 0, 8));
 
         listStatus = ui.status(13);
         page.addView(listStatus, ui.matchWrap(4, 0, 4, 6));
@@ -270,11 +297,26 @@ public class WcaLiveFragment extends Fragment {
         ScrollView scroll = new ScrollView(requireContext());
         listContainer = new LinearLayout(requireContext());
         listContainer.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(listContainer, new ViewGroup.LayoutParams(
+        LinearLayout homeColumn = new LinearLayout(requireContext());
+        homeColumn.setOrientation(LinearLayout.VERTICAL);
+        homeColumn.addView(listContainer, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        recordsBox = new LinearLayout(requireContext());
+        recordsBox.setOrientation(LinearLayout.VERTICAL);
+        homeColumn.addView(recordsBox, ui.matchWrap(0, 12, 0, 16));
+        scroll.addView(homeColumn, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(scroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return page;
+    }
+
+    private void styleTabs() {
+        for (int k = 0; k < tabTexts.size(); k++) {
+            boolean sel = k == filterMode;
+            tabTexts.get(k).setAlpha(sel ? 1f : 0.6f);
+            tabLines.get(k).setBackgroundColor(sel ? 0xFFE91E63 : 0x00000000);
+        }
     }
 
     private void hideKeyboard() {
@@ -290,9 +332,11 @@ public class WcaLiveFragment extends Fragment {
 
     private void doSearch() {
         String q = searchInput.getText().toString().trim();
+        searchQuery = q.isEmpty() ? null : q;
         filterMode = 0;
-        for (int k = 0; k < filterPills.size(); k++) ui.stylePill(filterPills.get(k), k == 0);
-        loadCompetitions(q.isEmpty() ? null : q);
+        visibleCount = 30;
+        styleTabs();
+        loadCompetitions(searchQuery);
     }
 
     private static String isoDate(Calendar c) {
@@ -305,12 +349,12 @@ public class WcaLiveFragment extends Fragment {
         listError = null;
         listStatus.setText("Loading competitions...");
         Calendar from = Calendar.getInstance();
-        if (filter == null) from.add(Calendar.DAY_OF_MONTH, -7);
+        if (filter == null) from.add(Calendar.DAY_OF_MONTH, -31);
         else from.add(Calendar.YEAR, -20);
         try {
             JSONObject vars = new JSONObject();
             vars.put("from", isoDate(from));
-            vars.put("limit", 100);
+            vars.put("limit", 250);
             vars.put("filter", filter == null ? JSONObject.NULL : filter);
             JSONObject body = new JSONObject();
             body.put("query", "query($from: Date, $filter: String, $limit: Int) "
@@ -378,31 +422,52 @@ public class WcaLiveFragment extends Fragment {
 
     private void renderList() {
         listContainer.removeAllViews();
+        recordsBox.setVisibility(filterMode <= 1 && searchQuery == null ? View.VISIBLE : View.GONE);
         List<Comp> items = new ArrayList<>();
-        if (filterMode == 0) {
-            items.addAll(loadedComps);
-            final String today = isoDate(Calendar.getInstance());
-            Collections.sort(items, new Comparator<Comp>() {
-                @Override
-                public int compare(Comp a, Comp b) {
-                    int ra = statusRank(a), rb = statusRank(b);
-                    if (ra != rb) return ra - rb;
-                    if (ra == 1) return a.start.compareTo(b.start);   // soonest upcoming first
-                    return b.start.compareTo(a.start);                  // newest first
+        final String today = isoDate(Calendar.getInstance());
+        if (filterMode <= 1) {
+            if (searchQuery != null) {
+                items.addAll(loadedComps);
+                Collections.sort(items, new Comparator<Comp>() {
+                    @Override
+                    public int compare(Comp a, Comp b) {
+                        return b.start.compareTo(a.start);
+                    }
+                });
+            } else {
+                Calendar pm = Calendar.getInstance();
+                pm.add(Calendar.DAY_OF_MONTH, -30);
+                String monthAgo = isoDate(pm);
+                for (Comp c : loadedComps) {
+                    boolean finished = c.end.compareTo(today) < 0;
+                    if (filterMode == 0 && !finished) items.add(c);
+                    if (filterMode == 1 && finished && c.end.compareTo(monthAgo) >= 0) items.add(c);
                 }
-            });
+                final int mode = filterMode;
+                Collections.sort(items, new Comparator<Comp>() {
+                    @Override
+                    public int compare(Comp a, Comp b) {
+                        if (mode == 0) {
+                            int ra = statusRank(a), rb = statusRank(b);
+                            if (ra != rb) return ra - rb;
+                            return a.start.compareTo(b.start);   // soonest first
+                        }
+                        return b.end.compareTo(a.end);             // newest first
+                    }
+                });
+            }
         } else {
-            List<String[]> saved = store.getComps(filterMode == 1 ? "fav_comps" : "recent_comps");
-            for (String[] s : saved) {
+            List<String[]> saved = store.getComps(filterMode == 2 ? "fav_comps" : "recent_comps");
+            for (String[] sv : saved) {
                 Comp c = new Comp();
-                c.id = s[0];
-                c.wcaId = s[0];
-                c.name = s[1];
+                c.id = sv[0];
+                c.wcaId = sv[0];
+                c.name = sv[1];
                 items.add(c);
             }
         }
 
-        if (filterMode == 0) {
+        if (filterMode <= 1) {
             if (listError != null) {
                 String when = listLoaded ? " Showing the list from " + time(listFetchedAt) + "." : "";
                 listStatus.setText(listError + "." + when);
@@ -417,15 +482,45 @@ public class WcaLiveFragment extends Fragment {
         }
 
         if (items.isEmpty()) {
-            String msg = filterMode == 1 ? "No favorite competitions yet. Tap the star on a competition."
-                    : filterMode == 2 ? "No recently viewed competitions yet."
+            String msg = filterMode == 2 ? "No favorite competitions yet. Tap the star on a competition."
+                    : filterMode == 3 ? "No recently viewed competitions yet."
                     : (listError != null ? "" : "No competitions found.");
             if (!msg.isEmpty()) listContainer.addView(ui.text(msg, 15, false, 0.8f), ui.matchWrap(8, 12, 8, 12));
             return;
         }
 
-        for (Comp c : items) {
-            listContainer.addView(buildCompCard(c), ui.matchWrap(0, 4, 0, 4));
+        int limit = Math.min(visibleCount, items.size());
+        for (int i = 0; i < limit; i++) {
+            listContainer.addView(buildCompCard(items.get(i)), ui.matchWrap(0, 4, 0, 4));
+        }
+        if (limit < items.size()) {
+            TextView more = ui.pill("Show more (" + (items.size() - limit) + " left)", false);
+            more.setOnClickListener(v -> {
+                visibleCount += 30;
+                renderList();
+            });
+            listContainer.addView(more, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 4));
+        }
+    }
+
+    private static String fmtDates(String start, String end) {
+        try {
+            SimpleDateFormat in = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
+            Date a = in.parse(start);
+            Date b = end == null || end.isEmpty() ? a : in.parse(end);
+            if (a == null || b == null) return start;
+            SimpleDateFormat md = new SimpleDateFormat("MMM d", Locale.ENGLISH);
+            SimpleDateFormat d = new SimpleDateFormat("d", Locale.ENGLISH);
+            SimpleDateFormat y = new SimpleDateFormat("yyyy", Locale.ENGLISH);
+            SimpleDateFormat m = new SimpleDateFormat("MMM", Locale.ENGLISH);
+            if (start.equals(end) || end == null || end.isEmpty()) return md.format(a) + ", " + y.format(a);
+            if (m.format(a).equals(m.format(b)) && y.format(a).equals(y.format(b))) {
+                return md.format(a) + " - " + d.format(b) + ", " + y.format(a);
+            }
+            return md.format(a) + " - " + md.format(b) + ", " + y.format(b);
+        } catch (Exception e) {
+            return start;
         }
     }
 
@@ -434,25 +529,167 @@ public class WcaLiveFragment extends Fragment {
         LinearLayout top = new LinearLayout(requireContext());
         top.setOrientation(LinearLayout.HORIZONTAL);
         top.setGravity(Gravity.CENTER_VERTICAL);
-        TextView name = ui.text(c.name, 16, true, 1f);
-        top.addView(name, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        ((LinearLayout.LayoutParams) name.getLayoutParams()).weight = 1f;
+
+        final TextView flag = ui.text("", 26, false, 1f);
+        flag.setGravity(Gravity.CENTER);
+        top.addView(flag, ui.lp(ui.dp(44), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        WcaNames.lookupCompCountry(c.wcaId, (id, iso) -> {
+            if (isAdded()) flag.setText(WcaFlags.emoji(iso));
+        });
+
+        LinearLayout mid = new LinearLayout(requireContext());
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.addView(ui.text(c.name, 16, true, 1f));
+        if (!c.start.isEmpty()) {
+            mid.addView(ui.text(fmtDates(c.start, c.end), 13, false, 0.8f));
+        }
+        top.addView(mid, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        ((LinearLayout.LayoutParams) mid.getLayoutParams()).weight = 1f;
+
         final ImageView star = ui.iconButton(store.isFavoriteComp(c.wcaId)
                 ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText);
         star.setOnClickListener(v -> {
             store.toggleFavoriteComp(c.wcaId, c.name);
             star.setImageDrawable(ui.tinted(store.isFavoriteComp(c.wcaId)
                     ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText));
-            if (filterMode == 1) renderList();
+            if (filterMode == 2) renderList();
         });
         top.addView(star);
         card.addView(top);
-        if (!c.start.isEmpty()) {
-            String dates = c.start.equals(c.end) ? c.start : c.start + " to " + c.end;
-            card.addView(ui.text(dates + "  \u00B7  " + status(c), 13, false, 0.8f));
-        }
         card.setOnClickListener(v -> openCompetition(c));
         return card;
+    }
+
+    // ---------------------------------------------------------------- recent records
+
+    private void loadRecords() {
+        if (recordsLoading) return;
+        recordsLoading = true;
+        recordsError = null;
+        renderRecords();
+        requestRecords(REC_Q1, true);
+    }
+
+    private void requestRecords(final String query, final boolean mayRetry) {
+        try {
+            JSONObject body = new JSONObject();
+            body.put("query", query);
+            WcaHttp.postJson(API, body.toString(), new WcaHttp.Callback() {
+                @Override
+                public void onSuccess(String text) {
+                    if (!isAdded()) return;
+                    try {
+                        JSONObject root = new JSONObject(text);
+                        JSONObject data = root.optJSONObject("data");
+                        JSONArray arr = data == null ? null : data.optJSONArray("recentRecords");
+                        if (arr == null) {
+                            if (mayRetry) { requestRecords(REC_Q2, false); return; }
+                            throw new Exception("no records field");
+                        }
+                        List<String[]> out = new ArrayList<>();
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject o = arr.getJSONObject(i);
+                            JSONObject res = o.optJSONObject("result");
+                            JSONObject person = res == null ? null : res.optJSONObject("person");
+                            JSONObject country = person == null ? null : person.optJSONObject("country");
+                            JSONObject round = res == null ? null : res.optJSONObject("round");
+                            JSONObject ce = round == null ? null : round.optJSONObject("competitionEvent");
+                            JSONObject ev = ce == null ? null : ce.optJSONObject("event");
+                            String evId = ev == null ? "" : ev.optString("id");
+                            String evName = WcaFormat.eventName(evId);
+                            if ((evName == null || evName.isEmpty() || evName.equals(evId)) && ev != null) {
+                                evName = ev.optString("name", evId);
+                            }
+                            out.add(new String[]{
+                                    o.optString("tag"), o.optString("type"), evId, evName,
+                                    String.valueOf(o.optLong("attemptResult")),
+                                    person == null ? "" : person.optString("name"),
+                                    country == null ? "" : country.optString("name"),
+                                    country == null ? "" : country.optString("iso2")});
+                        }
+                        records.clear();
+                        records.addAll(out);
+                        recordsLoaded = true;
+                        recordsError = null;
+                    } catch (Exception e) {
+                        recordsError = "Couldn't read the recent records";
+                    }
+                    recordsLoading = false;
+                    renderRecords();
+                }
+
+                @Override
+                public void onError(String message) {
+                    if (!isAdded()) return;
+                    recordsLoading = false;
+                    recordsError = WcaHttp.describe(requireContext(), message).startsWith("No internet")
+                            ? "No internet connection" : "Couldn't load recent records";
+                    renderRecords();
+                }
+            });
+        } catch (Exception e) {
+            recordsLoading = false;
+            recordsError = "Couldn't load recent records";
+            renderRecords();
+        }
+    }
+
+    private void renderRecords() {
+        recordsBox.removeAllViews();
+        LinearLayout card = ui.card(false);
+        card.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(12));
+        card.addView(ui.text("Recent records", 18, true, 0.85f), ui.matchWrap(0, 0, 0, 8));
+        if (recordsLoading && records.isEmpty()) {
+            card.addView(ui.text("Loading recent records...", 14, false, 0.8f));
+        } else if (recordsError != null && records.isEmpty()) {
+            card.addView(ui.text(recordsError + ".", 14, false, 0.8f));
+        } else if (records.isEmpty()) {
+            card.addView(ui.text("No recent records.", 14, false, 0.8f));
+        }
+        int limit = Math.min(recordsShown, records.size());
+        for (int i = 0; i < limit; i++) {
+            String[] r = records.get(i);
+            LinearLayout row = new LinearLayout(requireContext());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView tag = new TextView(requireContext());
+            tag.setText(r[0]);
+            tag.setTextSize(15);
+            tag.setTextColor(android.graphics.Color.BLACK);
+            tag.setTag("badge");
+            tag.setTypeface(tag.getTypeface(), android.graphics.Typeface.BOLD);
+            tag.setGravity(Gravity.CENTER);
+            tag.setBackground(ui.rounded(WcaUi.badgeColor(r[0]), ui.dp(8)));
+            row.addView(tag, ui.lp(ui.dp(52), ui.dp(40), 0, 0, 14, 0));
+
+            LinearLayout mid = new LinearLayout(requireContext());
+            mid.setOrientation(LinearLayout.VERTICAL);
+            boolean avg = "average".equalsIgnoreCase(r[1]);
+            String time = WcaFormat.formatResult(Long.parseLong(r[4]), r[2], avg);
+            String lead = r[3] + " " + (avg ? "average" : "single") + " of ";
+            android.text.SpannableStringBuilder sb = new android.text.SpannableStringBuilder(lead + time);
+            sb.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                    lead.length(), sb.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            TextView main = ui.text("", 15, false, 1f);
+            main.setText(sb);
+            mid.addView(main);
+            String flag = WcaFlags.emoji(r[7]);
+            String who = (flag.isEmpty() ? "" : flag + " ") + r[5] + (r[6].isEmpty() ? "" : " from " + r[6]);
+            mid.addView(ui.text(who, 14, false, 0.8f));
+            row.addView(mid, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+            ((LinearLayout.LayoutParams) mid.getLayoutParams()).weight = 1f;
+            card.addView(row, ui.matchWrap(0, 8, 0, 8));
+        }
+        if (limit < records.size()) {
+            TextView more = ui.pill("Show more", false);
+            more.setOnClickListener(v -> {
+                recordsShown += 10;
+                renderRecords();
+            });
+            card.addView(more, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 4));
+        }
+        recordsBox.addView(card, ui.matchWrap(0, 0, 0, 0));
     }
 
     private String time(long ms) {
