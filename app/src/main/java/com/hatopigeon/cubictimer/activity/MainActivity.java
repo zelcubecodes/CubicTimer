@@ -340,13 +340,6 @@ public class MainActivity extends AppCompatActivity
                                 .withName(R.string.drawer_title_other),
 
                         new PrimaryDrawerItem()
-                                .withName(R.string.drawer_world_records)
-                                .withIcon(R.drawable.ic_outline_timeline_24px)
-                                .withIconTintingEnabled(true)
-                                .withSelectable(false)
-                                .withIdentifier(RECORDS_ID),
-
-                        new PrimaryDrawerItem()
                                 .withName(R.string.drawer_title_export_import)
                                 .withIcon(R.drawable.ic_outline_folder_24px)
                                 .withIconTintingEnabled(true)
