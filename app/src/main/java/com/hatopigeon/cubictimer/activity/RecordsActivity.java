@@ -478,7 +478,13 @@ public class RecordsActivity extends AppCompatActivity {
         mChart.setData(new LineData(set));
         mChart.getDescription().setEnabled(false);
         mChart.getLegend().setEnabled(false);
-        mChart.setTouchEnabled(false);
+        mChart.setTouchEnabled(true);
+        mChart.setDragEnabled(true);
+        mChart.setScaleEnabled(true);
+        mChart.setPinchZoom(true);
+        mChart.setDoubleTapToZoomEnabled(true);
+        mChart.setHighlightPerTapEnabled(false);
+        mChart.setHighlightPerDragEnabled(false);
         mChart.getAxisRight().setEnabled(false);
         mChart.getAxisLeft().setTextColor(mTextColor);
         mChart.getAxisLeft().setDrawGridLines(true);
@@ -494,6 +500,7 @@ public class RecordsActivity extends AppCompatActivity {
                 return String.valueOf((int) value);
             }
         });
+        mChart.fitScreen();
         mChart.invalidate();
     }
 

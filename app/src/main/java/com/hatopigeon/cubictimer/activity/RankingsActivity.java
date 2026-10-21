@@ -430,6 +430,7 @@ public class RankingsActivity extends AppCompatActivity {
         list.removeAllViews();
         rowViews.clear();
         int limit = Math.min(shown, items.length());
+        final List<String> visibleIds = new ArrayList<>();
         for (int i = 0; i < limit; i++) {
             JSONObject it = items.optJSONObject(i);
             if (it == null) continue;
@@ -466,15 +467,16 @@ public class RankingsActivity extends AppCompatActivity {
             rp.setMargins(0, dp(3), 0, dp(3));
             list.addView(row, rp);
             rowViews.put(id, new TextView[]{name, sub});
-            final int token = requestToken;
-            WcaNames.lookup(id, (wcaId, n, iso) -> runOnUiThread(() -> {
-                if (token != requestToken) return;
-                TextView[] tvs = rowViews.get(wcaId);
-                if (tvs == null) return;
-                String f = WcaFlags.emoji(iso);
-                tvs[0].setText((f.isEmpty() ? "" : f + " ") + n);
-            }));
+            visibleIds.add(id);
         }
+        final int token = requestToken;
+        WcaNames.lookupBatch(visibleIds, (wcaId, n, iso) -> runOnUiThread(() -> {
+            if (token != requestToken) return;
+            TextView[] tvs = rowViews.get(wcaId);
+            if (tvs == null) return;
+            String f = WcaFlags.emoji(iso);
+            tvs[0].setText((f.isEmpty() ? "" : f + " ") + n);
+        }));
         if (limit < items.length()) {
             TextView more = pill("Show more");
             stylePill(more, false);
