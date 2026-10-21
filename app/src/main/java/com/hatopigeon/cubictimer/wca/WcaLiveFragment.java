@@ -99,7 +99,6 @@ public class WcaLiveFragment extends Fragment {
     private LinearLayout resultsContainer;
     private TextView attemptsPill;
     private TextView sortPill;
-    private TextView autoPill;
     private ScrollView resultsScroll;
 
     private Comp currentComp = null;
@@ -178,6 +177,7 @@ public class WcaLiveFragment extends Fragment {
     }
 
     private void onShown() {
+        autoRefresh = store.getAutoRefresh();
         updateBack();
         if (inDetail) {
             scheduleAuto();
@@ -484,17 +484,8 @@ public class WcaLiveFragment extends Fragment {
             sortPill.setText(sortByName ? "Sort: name" : "Sort: rank");
             renderResults();
         });
-        autoPill = ui.pill("Auto 30s", autoRefresh);
-        autoPill.setOnClickListener(v -> {
-            autoRefresh = !autoRefresh;
-            store.setAutoRefresh(autoRefresh);
-            ui.stylePill(autoPill, autoRefresh);
-            renderResults();
-            if (autoRefresh) scheduleAuto(); else handler.removeCallbacks(autoRunnable);
-        });
         opts.addView(attemptsPill, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        opts.addView(sortPill, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        opts.addView(autoPill);
+        opts.addView(sortPill);
         page.addView(opts, ui.matchWrap(0, 0, 0, 8));
 
         resultsScroll = new ScrollView(requireContext());
@@ -841,10 +832,65 @@ public class WcaLiveFragment extends Fragment {
             if (sb.length() > 0) card.addView(ui.text(sb.toString(), 13, false, 0.85f), ui.matchWrap(36, 4, 0, 0));
         }
 
-        card.setOnClickListener(v -> {
+        card.setOnClickListener(v -> showPersonResults(r.personId, p, name));
+        card.setOnLongClickListener(v -> {
             store.toggleFavoritePerson(key);
             renderResults();
+            return true;
         });
         return card;
+    }
+
+    // Shows every result this person has in the competition, across all events and rounds.
+    private void showPersonResults(int personId, Person p, String name) {
+        final String key = (p != null && !p.wcaId.isEmpty()) ? p.wcaId : name;
+        ScrollView sv = new ScrollView(requireContext());
+        LinearLayout box = new LinearLayout(requireContext());
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(ui.dp(20), ui.dp(8), ui.dp(20), ui.dp(8));
+        sv.addView(box);
+
+        if (p != null && !p.country.isEmpty()) {
+            box.addView(ui.text(p.country + (p.wcaId.isEmpty() ? "" : "  \u00B7  " + p.wcaId),
+                    13, false, 0.7f), ui.matchWrap(0, 0, 0, 8));
+        }
+        boolean any = false;
+        for (Ev ev : events) {
+            for (Round rd : ev.rounds) {
+                for (Row row : rd.rows) {
+                    if (row.personId != personId) continue;
+                    any = true;
+                    box.addView(ui.text(WcaFormat.eventName(ev.id) + "  \u00B7  Round " + rd.number,
+                            15, true, 1f), ui.matchWrap(0, 10, 0, 2));
+                    String avg = WcaFormat.formatResult(row.average, ev.id, true);
+                    String best = WcaFormat.formatResult(row.best, ev.id, false);
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(row.ranking > 0 ? "Rank " + row.ranking : "Rank -");
+                    if (!"333mbf".equals(ev.id) && !avg.isEmpty()) sb.append("   avg ").append(avg);
+                    if (!best.isEmpty()) sb.append("   best ").append(best);
+                    box.addView(ui.text(sb.toString(), 14, false, 0.9f));
+                    StringBuilder at = new StringBuilder();
+                    for (long a : row.attempts) {
+                        String t = WcaFormat.formatResult(a, ev.id, false);
+                        if (t.isEmpty()) continue;
+                        if (at.length() > 0) at.append("   ");
+                        at.append(t);
+                    }
+                    if (at.length() > 0) box.addView(ui.text(at.toString(), 13, false, 0.8f));
+                }
+            }
+        }
+        if (!any) box.addView(ui.text("No results yet.", 14, false, 0.85f));
+
+        boolean fav = store.isFavoritePerson(key);
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle(name)
+                .setView(sv)
+                .setPositiveButton("Close", null)
+                .setNeutralButton(fav ? "Unfavorite" : "Favorite", (d, w) -> {
+                    store.toggleFavoritePerson(key);
+                    renderResults();
+                })
+                .show();
     }
 }

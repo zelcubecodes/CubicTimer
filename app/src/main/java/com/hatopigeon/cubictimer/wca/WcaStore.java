@@ -12,8 +12,10 @@ import java.util.List;
 /** Small persistent store for the WCA screens: saved WCA ID, favorites, recents and cached data. */
 public final class WcaStore {
     private final SharedPreferences sp;
+    private final Context appCtx;
 
     public WcaStore(Context c) {
+        appCtx = c.getApplicationContext();
         sp = c.getApplicationContext().getSharedPreferences("wca_prefs", Context.MODE_PRIVATE);
     }
 
@@ -68,11 +70,13 @@ public final class WcaStore {
     }
 
     public boolean getAutoRefresh() {
-        return sp.getBoolean("auto_refresh", true);
+        return androidx.preference.PreferenceManager.getDefaultSharedPreferences(appCtx)
+                .getBoolean("wca_auto_refresh", true);
     }
 
     public void setAutoRefresh(boolean on) {
-        sp.edit().putBoolean("auto_refresh", on).apply();
+        androidx.preference.PreferenceManager.getDefaultSharedPreferences(appCtx)
+                .edit().putBoolean("wca_auto_refresh", on).apply();
     }
 
     // Competitions are stored as [wcaId, name] pairs.
