@@ -67,6 +67,7 @@ public class WcaLiveFragment extends Fragment {
         long best, average;
         long[] attempts = new long[0];
         String singleTag = "", avgTag = "";
+        boolean advancing;
     }
 
     private static class Round {
@@ -263,7 +264,7 @@ public class WcaLiveFragment extends Fragment {
         }
         page.addView(pills, ui.matchWrap(0, 0, 0, 8));
 
-        listStatus = ui.text("", 13, false, 0.8f);
+        listStatus = ui.status(13);
         page.addView(listStatus, ui.matchWrap(4, 0, 4, 6));
 
         ScrollView scroll = new ScrollView(requireContext());
@@ -479,7 +480,7 @@ public class WcaLiveFragment extends Fragment {
         header.addView(refresh);
         page.addView(header, ui.matchWrap(0, 0, 0, 6));
 
-        detailStatus = ui.text("", 13, false, 0.85f);
+        detailStatus = ui.status(13);
         page.addView(detailStatus, ui.matchWrap(4, 0, 4, 6));
 
         eventRow = new LinearLayout(requireContext());
@@ -641,6 +642,7 @@ public class WcaLiveFragment extends Fragment {
                             Row row = new Row();
                             row.personId = r.optInt("personId");
                             row.ranking = r.isNull("ranking") ? 0 : r.optInt("ranking");
+                            row.advancing = r.optBoolean("advancing", false);
                             row.best = r.optLong("best");
                             row.average = r.optLong("average");
                             JSONObject rt = r.optJSONObject("recordTags");
@@ -821,13 +823,15 @@ public class WcaLiveFragment extends Fragment {
             });
         }
         boolean hasAverage = "333mbf".equals(ev.id) ? false : true;
+        boolean finalRound = roundIndex == ev.rounds.size() - 1;
         for (Row r : rows) {
             Person p = ppl.get(r.personId);
             String name = p == null ? "Competitor " + r.personId : p.name;
             String key = (p != null && !p.wcaId.isEmpty()) ? p.wcaId : name;
             boolean mine = store.isPinned(key);
             boolean fav = store.isFavoritePerson(key);
-            resultsContainer.addView(buildRow(r, p, name, key, ev.id, hasAverage, mine || fav),
+            boolean green = r.advancing || (finalRound && r.ranking >= 1 && r.ranking <= 3 && r.best > 0);
+            resultsContainer.addView(buildRow(r, p, name, key, ev.id, hasAverage, mine || fav, green),
                     ui.matchWrap(0, 3, 0, 3));
         }
     }
@@ -851,7 +855,7 @@ public class WcaLiveFragment extends Fragment {
     }
 
     private View buildRow(Row r, Person p, String name, String key, String eventId,
-                          boolean hasAverage, boolean highlighted) {
+                          boolean hasAverage, boolean highlighted, boolean green) {
         LinearLayout card = ui.card(highlighted);
         LinearLayout line = new LinearLayout(requireContext());
         line.setOrientation(LinearLayout.HORIZONTAL);
@@ -859,6 +863,12 @@ public class WcaLiveFragment extends Fragment {
 
         TextView rank = ui.text(r.ranking > 0 ? String.valueOf(r.ranking) : "-", 16, true, 1f);
         rank.setMinWidth(ui.dp(32));
+        rank.setGravity(Gravity.CENTER);
+        if (green) {
+            rank.setBackground(ui.rounded(0xFF00E676, ui.dp(6)));
+            rank.setTextColor(android.graphics.Color.BLACK);
+            rank.setPadding(ui.dp(6), ui.dp(4), ui.dp(6), ui.dp(4));
+        }
         line.addView(rank);
 
         LinearLayout mid = new LinearLayout(requireContext());
@@ -953,32 +963,30 @@ public class WcaLiveFragment extends Fragment {
         }
         boolean any = false;
         for (Ev ev : events) {
-            for (Round rd : ev.rounds) {
+            LinearLayout table = null;
+            for (int ri = 0; ri < ev.rounds.size(); ri++) {
+                Round rd = ev.rounds.get(ri);
                 for (Row row : rd.rows) {
                     if (row.personId != personId) continue;
                     any = true;
-                    TextView evTitle = ui.text(WcaFormat.eventName(ev.id) + "  \u00B7  Round " + rd.number,
-                            15, true, 1f);
-                    ui.setEventIcon(evTitle, ev.id, 18, ui.text);
-                    box.addView(evTitle, ui.matchWrap(0, 12, 0, 2));
-                    LinearLayout vals = new LinearLayout(requireContext());
-                    vals.setOrientation(LinearLayout.HORIZONTAL);
-                    vals.setGravity(Gravity.CENTER_VERTICAL);
-                    vals.addView(ui.text(row.ranking > 0 ? "#" + row.ranking : "#-", 14, true, 0.9f),
-                            ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 6, 12, 0));
-                    String avg = WcaFormat.formatResult(row.average, ev.id, true);
-                    String best = WcaFormat.formatResult(row.best, ev.id, false);
-                    if (!"333mbf".equals(ev.id) && !avg.isEmpty()) vals.addView(ui.resultCell("avg", avg, row.avgTag, 14, true));
-                    if (!best.isEmpty()) vals.addView(ui.resultCell("best", best, row.singleTag, 14, false));
-                    box.addView(vals);
-                    StringBuilder at = new StringBuilder();
-                    for (long a : row.attempts) {
-                        String t = WcaFormat.formatResult(a, ev.id, false);
-                        if (t.isEmpty()) continue;
-                        if (at.length() > 0) at.append("   ");
-                        at.append(t);
+                    if (table == null) {
+                        TextView evTitle = ui.text(WcaFormat.eventName(ev.id), 16, true, 1f);
+                        ui.setEventIcon(evTitle, ev.id, 20, ui.text);
+                        box.addView(evTitle, ui.matchWrap(0, 12, 0, 6));
+                        table = new LinearLayout(requireContext());
+                        table.setOrientation(LinearLayout.VERTICAL);
+                        table.setBackground(ui.rounded(
+                                androidx.core.graphics.ColorUtils.blendARGB(ui.itemBg, ui.itemText, 0.06f), ui.dp(8)));
+                        table.addView(personRow(null, "#", "Round", "Average", "Best", null, null, false, true));
+                        box.addView(table);
                     }
-                    if (at.length() > 0) box.addView(ui.text(at.toString(), 13, false, 0.8f));
+                    boolean isFinal = ri == ev.rounds.size() - 1;
+                    boolean green = row.advancing
+                            || (isFinal && row.ranking >= 1 && row.ranking <= 3 && row.best > 0);
+                    String avg = "333mbf".equals(ev.id) ? "" : WcaFormat.formatResult(row.average, ev.id, true);
+                    String best = WcaFormat.formatResult(row.best, ev.id, false);
+                    table.addView(personRow(null, row.ranking > 0 ? String.valueOf(row.ranking) : "-",
+                            roundLabel(ev, rd), avg, best, row.avgTag, row.singleTag, green, false));
                 }
             }
         }
@@ -987,5 +995,46 @@ public class WcaLiveFragment extends Fragment {
         android.app.Dialog d = ui.dialog(root);
         holder[0] = d;
         d.show();
+    }
+
+    private static String roundLabel(Ev ev, Round rd) {
+        int total = ev.rounds.size();
+        if (rd.number == total) return "Final";
+        if (total >= 3 && rd.number == total - 1) return "Semi Final";
+        String[] names = {"First Round", "Second Round", "Third Round", "Fourth Round"};
+        return rd.number >= 1 && rd.number <= names.length ? names[rd.number - 1] : "Round " + rd.number;
+    }
+
+    /** One line of the competitor pop-up table: rank (green when advancing), round, average, best. */
+    private View personRow(Object unused, String rank, String round, String avg, String best,
+                           String avgTag, String bestTag, boolean green, boolean header) {
+        LinearLayout row = new LinearLayout(requireContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, ui.dp(2), ui.dp(8), ui.dp(2));
+        TextView rk = ui.text(rank, 14, header, 1f);
+        rk.setGravity(Gravity.CENTER);
+        if (green) {
+            rk.setBackground(ui.rounded(0xFF00E676, ui.dp(6)));
+            rk.setTextColor(android.graphics.Color.BLACK);
+        }
+        row.addView(rk, ui.lp(ui.dp(36), ui.dp(34), 6, 0, 6, 0));
+        TextView rd = ui.text(round, 14, header, 1f);
+        row.addView(rd, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+        ((LinearLayout.LayoutParams) rd.getLayoutParams()).weight = 1f;
+        row.addView(cellOf(avg, avgTag, header, true), ui.lp(ui.dp(84), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+        row.addView(cellOf(best, bestTag, header, false), ui.lp(ui.dp(84), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+        return row;
+    }
+
+    private View cellOf(String value, String tag, boolean header, boolean bold) {
+        if (header) {
+            TextView t = ui.text(value, 14, true, 1f);
+            t.setGravity(Gravity.END);
+            t.setPadding(0, 0, ui.dp(13), 0);
+            return t;
+        }
+        if (value.isEmpty()) return new View(requireContext());
+        return ui.resultCell("", value, tag, 14, bold);
     }
 }

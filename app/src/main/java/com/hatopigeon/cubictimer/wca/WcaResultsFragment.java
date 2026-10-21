@@ -112,7 +112,14 @@ public class WcaResultsFragment extends Fragment {
 
         TextView records = ui.pill("World records history", false);
         records.setOnClickListener(v -> startActivity(new Intent(requireContext(), RecordsActivity.class)));
-        page.addView(records, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 8));
+        TextView rankings = ui.pill("Rankings", false);
+        rankings.setOnClickListener(v -> startActivity(new Intent(requireContext(),
+                com.hatopigeon.cubictimer.activity.RankingsActivity.class)));
+        LinearLayout recordsRow = new LinearLayout(requireContext());
+        recordsRow.setOrientation(LinearLayout.HORIZONTAL);
+        recordsRow.addView(records, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        recordsRow.addView(rankings);
+        page.addView(recordsRow, ui.matchWrap(0, 0, 0, 8));
 
         page.addView(ui.text("Pinned competitors", 13, true, 0.8f), ui.matchWrap(4, 0, 4, 4));
         android.widget.HorizontalScrollView pinScroll = new android.widget.HorizontalScrollView(requireContext());
@@ -123,7 +130,7 @@ public class WcaResultsFragment extends Fragment {
         page.addView(pinScroll, ui.matchWrap(0, 0, 0, 8));
         renderPinned();
 
-        status = ui.text("", 13, false, 0.85f);
+        status = ui.status(13);
         page.addView(status, ui.matchWrap(4, 0, 4, 6));
 
         body = new LinearLayout(requireContext());
@@ -395,30 +402,66 @@ public class WcaResultsFragment extends Fragment {
                 return WcaFormat.eventOrder(a) - WcaFormat.eventOrder(b);
             }
         });
-        body.addView(ui.text("Personal records", 18, true, 1f), ui.matchWrap(4, 12, 4, 4));
+        body.addView(ui.label("Personal records", 18, true), ui.matchWrap(0, 12, 0, 6));
         LinearLayout card = ui.card(false);
-        boolean first = true;
+        card.setPadding(0, 0, 0, 0);
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(requireContext());
+        LinearLayout table = new LinearLayout(requireContext());
+        table.setOrientation(LinearLayout.VERTICAL);
+        hs.addView(table);
+        String[] heads = {"Event", "NR", "CR", "WR", "Single", "Average", "WR", "CR", "NR"};
+        int[] widths = {176, 64, 64, 64, 84, 84, 64, 64, 64};
+        LinearLayout hrow = tableRow(0);
+        for (int i = 0; i < heads.length; i++) hrow.addView(prCell(heads[i], widths[i], true, i == 0, false));
+        table.addView(hrow);
+        int n = 0;
         for (String ev : ids) {
             JSONObject e = pr.optJSONObject(ev);
             if (e == null) continue;
             JSONObject single = e.optJSONObject("single");
             JSONObject avg = e.optJSONObject("average");
-            TextView title = ui.text(WcaFormat.eventName(ev), 15, true, 1f);
-            ui.setEventIcon(title, ev, 18, ui.text);
-            card.addView(title, ui.matchWrap(0, first ? 0 : 10, 0, 0));
-            first = false;
-            if (single != null && single.optLong("best") != 0) {
-                String r = rankText(single);
-                card.addView(ui.text("Single  " + WcaFormat.formatResult(single.optLong("best"), ev, false)
-                        + (r.isEmpty() ? "" : "   (" + r + ")"), 14, false, 0.95f));
-            }
-            if (avg != null && avg.optLong("best") != 0) {
-                String r = rankText(avg);
-                card.addView(ui.text("Average  " + WcaFormat.formatResult(avg.optLong("best"), ev, true)
-                        + (r.isEmpty() ? "" : "   (" + r + ")"), 14, false, 0.95f));
-            }
+            LinearLayout line = tableRow(n++ % 2 == 0 ? 3 : 2);
+            TextView title = ui.text(WcaFormat.eventName(ev), 14, false, 1f);
+            ui.setEventIcon(title, ev, 20, ui.text);
+            title.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widths[0]), ViewGroup.LayoutParams.WRAP_CONTENT));
+            line.addView(title);
+            boolean hasS = single != null && single.optLong("best") != 0;
+            boolean hasA = avg != null && avg.optLong("best") != 0;
+            line.addView(prCell(hasS ? rankOf(single, "country_rank") : "", widths[1], false, false, isOne(single, "country_rank")));
+            line.addView(prCell(hasS ? rankOf(single, "continent_rank") : "", widths[2], false, false, isOne(single, "continent_rank")));
+            line.addView(prCell(hasS ? rankOf(single, "world_rank") : "", widths[3], false, false, isOne(single, "world_rank")));
+            line.addView(prCell(hasS ? WcaFormat.formatResult(single.optLong("best"), ev, false) : "", widths[4], true, false, false));
+            line.addView(prCell(hasA ? WcaFormat.formatResult(avg.optLong("best"), ev, true) : "", widths[5], true, false, false));
+            line.addView(prCell(hasA ? rankOf(avg, "world_rank") : "", widths[6], false, false, isOne(avg, "world_rank")));
+            line.addView(prCell(hasA ? rankOf(avg, "continent_rank") : "", widths[7], false, false, isOne(avg, "continent_rank")));
+            line.addView(prCell(hasA ? rankOf(avg, "country_rank") : "", widths[8], false, false, isOne(avg, "country_rank")));
+            table.addView(line);
         }
+        card.addView(hs);
         body.addView(card, ui.matchWrap(0, 4, 0, 4));
+    }
+
+    private static String rankOf(JSONObject o, String key) {
+        int v = o == null ? -1 : o.optInt(key, -1);
+        return v > 0 ? String.valueOf(v) : "";
+    }
+
+    private static boolean isOne(JSONObject o, String key) {
+        return o != null && o.optInt(key, -1) == 1;
+    }
+
+    /** A cell of the personal records table. Ranks are grey, and red when the person holds the record. */
+    private TextView prCell(String s, int widthDp, boolean bold, boolean left, boolean record) {
+        TextView t = ui.text(s, 14, bold, 1f);
+        t.setGravity(left ? Gravity.START : Gravity.END);
+        t.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT));
+        t.setPadding(0, 0, ui.dp(10), 0);
+        if (record) {
+            t.setTextColor(0xFFE53935);
+        } else if (!bold && !left) {
+            t.setAlpha(0.65f);
+        }
+        return t;
     }
 
     private static final int W_COMP = 190, W_ROUND = 112, W_PLACE = 56, W_SINGLE = 100, W_AVG = 100, W_SOLVES = 290;
@@ -444,7 +487,7 @@ public class WcaResultsFragment extends Fragment {
             historyEvent = events.contains("333") ? "333" : events.get(0);
         }
 
-        body.addView(ui.text("Previous results", 18, true, 1f), ui.matchWrap(4, 14, 4, 6));
+        body.addView(ui.label("Previous results", 18, true), ui.matchWrap(0, 14, 0, 6));
 
         // Event picker: one icon per event the person has results in.
         android.widget.HorizontalScrollView pickScroll = new android.widget.HorizontalScrollView(requireContext());

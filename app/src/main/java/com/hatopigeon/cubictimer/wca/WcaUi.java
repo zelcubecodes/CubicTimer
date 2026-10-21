@@ -70,6 +70,7 @@ public final class WcaUi {
 
     public TextView pill(String s, boolean selected) {
         TextView t = text(s, 14, true, 1f);
+        t.setTextColor(itemText);
         t.setGravity(Gravity.CENTER);
         t.setPadding(dp(14), dp(8), dp(14), dp(8));
         t.setMinHeight(dp(40));
@@ -78,10 +79,10 @@ public final class WcaUi {
     }
 
     public void stylePill(TextView t, boolean selected) {
-        GradientDrawable g = rounded(selected ? panel : Color.TRANSPARENT, dp(20));
-        g.setStroke(dp(1), (text & 0x00FFFFFF) | 0x55000000);
+        GradientDrawable g = rounded(selected ? highlight : itemBg, dp(8));
+        g.setStroke(dp(selected ? 2 : 1), (itemText & 0x00FFFFFF) | (selected ? 0x99000000 : 0x40000000));
         t.setBackground(g);
-        t.setAlpha(selected ? 1f : 0.75f);
+        t.setAlpha(selected ? 1f : 0.85f);
     }
 
     /** A solve box: same background and corner radius as the boxes on the Previous Solves page. */
@@ -109,7 +110,7 @@ public final class WcaUi {
     public void recolor(View v, int from, int to) {
         if (v instanceof TextView && !(v instanceof EditText)) {
             TextView t = (TextView) v;
-            if (t.getCurrentTextColor() == from) t.setTextColor(to);
+            if (!"badge".equals(t.getTag()) && t.getCurrentTextColor() == from) t.setTextColor(to);
         }
         if (v instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) v;
@@ -157,10 +158,10 @@ public final class WcaUi {
 
     public static int badgeColor(String tag) {
         switch (tag) {
-            case "WR": return 0xFFD9534F;
-            case "NR": return 0xFF5CB85C;
-            case "PR": return 0xFF337AB7;
-            default: return 0xFFF0AD4E; // CR and the named continents (AsR, ER, ...)
+            case "WR": return 0xFFFF5252;
+            case "NR": return 0xFF00E676;
+            case "PR": return 0xFFBDBDBD;
+            default: return 0xFFFFEB3B; // CR and the named continents (AsR, ER, ...)
         }
     }
 
@@ -168,7 +169,8 @@ public final class WcaUi {
         TextView b = new TextView(ctx);
         b.setText(tag);
         b.setTextSize(10);
-        b.setTextColor(Color.WHITE);
+        b.setTextColor(Color.BLACK);
+        b.setTag("badge");
         b.setTypeface(b.getTypeface(), Typeface.BOLD);
         b.setPadding(dp(4), dp(1), dp(4), dp(1));
         b.setBackground(rounded(badgeColor(tag), dp(4)));
@@ -180,7 +182,7 @@ public final class WcaUi {
         FrameLayout f = new FrameLayout(ctx);
         TextView t = text(label.isEmpty() ? value : label + " " + value, sp, bold, 1f);
         t.setGravity(Gravity.END);
-        t.setPadding(0, dp(8), dp(26), 0);
+        t.setPadding(0, dp(7), dp(13), 0);
         f.addView(t, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END));
         if (tag != null && !tag.isEmpty()) {
@@ -188,6 +190,34 @@ public final class WcaUi {
                     ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END | Gravity.TOP));
         }
         return f;
+    }
+
+    /** A heading or note with a solid, themed background (never transparent). */
+    public TextView label(String s, float sp, boolean bold) {
+        TextView t = text(s, sp, bold, 1f);
+        styleLabel(t);
+        return t;
+    }
+
+    public void styleLabel(TextView t) {
+        t.setTextColor(itemText);
+        t.setPadding(dp(12), dp(8), dp(12), dp(8));
+        t.setBackground(rounded(itemBg, dp(8)));
+    }
+
+    /** A status line that only shows (with its background) while it has text. */
+    public TextView status(float sp) {
+        final TextView t = text("", sp, false, 1f);
+        styleLabel(t);
+        t.setVisibility(View.GONE);
+        t.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable e) {
+                t.setVisibility(e.length() == 0 ? View.GONE : View.VISIBLE);
+            }
+        });
+        return t;
     }
 
     // ---------------------------------------------------------------- dialog
@@ -230,12 +260,12 @@ public final class WcaUi {
         e.setSingleLine(true);
         e.setInputType(InputType.TYPE_CLASS_TEXT);
         e.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        e.setTextColor(text);
-        e.setHintTextColor((text & 0x00FFFFFF) | 0x88000000);
+        e.setTextColor(itemText);
+        e.setHintTextColor((itemText & 0x00FFFFFF) | 0x88000000);
         e.setTextSize(16);
         e.setPadding(dp(16), dp(10), dp(16), dp(10));
         e.setMinHeight(dp(48));
-        e.setBackground(rounded(panel, dp(24)));
+        e.setBackground(rounded(itemBg, dp(8)));
         return e;
     }
 }
