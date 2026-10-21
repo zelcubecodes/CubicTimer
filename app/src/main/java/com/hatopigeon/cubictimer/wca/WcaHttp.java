@@ -50,6 +50,36 @@ public final class WcaHttp {
         });
     }
 
+    /** True when the device has a network that claims to reach the internet. */
+    public static boolean isOnline(android.content.Context c) {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager)
+                    c.getApplicationContext().getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
+            if (cm == null) return true;
+            android.net.Network n = cm.getActiveNetwork();
+            if (n == null) return false;
+            android.net.NetworkCapabilities caps = cm.getNetworkCapabilities(n);
+            return caps != null
+                    && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        } catch (Exception e) {
+            return true; // cannot tell, so let the request decide
+        }
+    }
+
+    /** Turns a raw request error into a short message a person can understand. */
+    public static String describe(android.content.Context c, String raw) {
+        if (!isOnline(c)) return "No internet connection";
+        String m = raw == null ? "" : raw;
+        if (m.startsWith("UnknownHost") || m.startsWith("ConnectException")
+                || m.startsWith("SocketTimeout") || m.startsWith("NoRouteToHost")
+                || m.startsWith("SSLException")) {
+            return "No internet access";
+        }
+        if (m.startsWith("HTTP 404")) return "Not found on the WCA server";
+        if (m.startsWith("HTTP")) return "WCA server error (" + m + "). Try again later";
+        return "Could not reach the WCA server";
+    }
+
     private static void request(String method, String url, String body, Callback cb) {
         EXECUTOR.execute(() -> {
             HttpURLConnection conn = null;

@@ -18,7 +18,9 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
+import com.hatopigeon.cubicify.R;
 import com.hatopigeon.cubictimer.activity.RecordsActivity;
+import com.hatopigeon.cubictimer.fragment.TimerFragmentMain;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -67,6 +69,8 @@ public class WcaResultsFragment extends Fragment {
     private long dataTime = 0L;
     private int shown = PAGE_SIZE;
     private Map<String, String[]> compInfo = null;
+    private String historyEvent = null;
+    private String lastShownId = null;
 
     @Nullable
     @Override
@@ -195,9 +199,9 @@ public class WcaResultsFragment extends Fragment {
                             final String id = o.optString("wca_id");
                             if (id.isEmpty() || "null".equals(id)) continue;
                             LinearLayout card = ui.card(false);
-                            card.addView(ui.text(o.optString("name"), 16, true, 1f));
-                            String country = o.optString("country_iso2");
-                            card.addView(ui.text(id + (country.isEmpty() ? "" : "  \u00B7  " + country), 13, false, 0.8f));
+                            String sFlag = WcaFlags.emoji(o.optString("country_iso2"));
+                            card.addView(ui.text((sFlag.isEmpty() ? "" : sFlag + " ") + o.optString("name"), 16, true, 1f));
+                            card.addView(ui.text(id, 13, false, 0.8f));
                             card.setOnClickListener(v -> {
                                 input.setText(id);
                                 loadPerson(id);
@@ -215,7 +219,7 @@ public class WcaResultsFragment extends Fragment {
             @Override
             public void onError(String message) {
                 if (!isAdded()) return;
-                status.setText("Could not search (" + message + "). This needs internet. "
+                status.setText(WcaHttp.describe(requireContext(), message) + ". "
                         + "You can still open a competitor by WCA ID if you opened them before.");
             }
         });
@@ -260,13 +264,15 @@ public class WcaResultsFragment extends Fragment {
         String r = store.cachedResults(wcaId);
         if (p != null && r != null) {
             show(wcaId, p, r, true, store.cachedAt(wcaId));
-            status.setText("Could not reach the WCA website (" + error + "). Showing a saved copy from "
+            status.setText(WcaHttp.describe(requireContext(), error) + ". Showing a saved copy from "
                     + dateTime(store.cachedAt(wcaId)) + ".");
         } else {
+            String why = WcaHttp.describe(requireContext(), error);
             String hint = error.contains("403")
                     ? " The WCA website refused the request."
-                    : " This needs internet the first time you open a competitor.";
-            status.setText("Could not load " + wcaId + " (" + error + ")." + hint);
+                    : (why.startsWith("No internet") ? " Connect to the internet to open " + wcaId + "."
+                    : " Tap Refresh or search again to retry.");
+            status.setText(why + "." + hint);
         }
     }
 
@@ -281,6 +287,10 @@ public class WcaResultsFragment extends Fragment {
         fromCache = cached;
         dataTime = time;
         shown = PAGE_SIZE;
+        if (lastShownId == null || !lastShownId.equals(wcaId)) {
+            historyEvent = null;
+            lastShownId = wcaId;
+        }
         if (compInfo == null) {
             final android.content.Context appCtx = requireContext().getApplicationContext();
             WcaHttp.background(new Runnable() {
@@ -310,11 +320,12 @@ public class WcaResultsFragment extends Fragment {
             String id = person != null ? person.optString("wca_id") : openId;
             if (id == null || id.isEmpty()) id = openId;
             String country = person != null ? person.optString("country_iso2") : "";
+            String flag = WcaFlags.emoji(country);
 
             // Header card
             LinearLayout head = ui.card(false);
-            head.addView(ui.text(name.isEmpty() ? id : name, 20, true, 1f));
-            String sub = id + (country.isEmpty() ? "" : "  \u00B7  " + country);
+            head.addView(ui.text((flag.isEmpty() ? "" : flag + " ") + (name.isEmpty() ? id : name), 20, true, 1f));
+            String sub = id;
             int comps = root.optInt("competition_count", -1);
             if (comps >= 0) sub += "  \u00B7  " + comps + " competitions";
             head.addView(ui.text(sub, 13, false, 0.85f));
@@ -393,6 +404,7 @@ public class WcaResultsFragment extends Fragment {
             JSONObject single = e.optJSONObject("single");
             JSONObject avg = e.optJSONObject("average");
             TextView title = ui.text(WcaFormat.eventName(ev), 15, true, 1f);
+            ui.setEventIcon(title, ev, 18, ui.text);
             card.addView(title, ui.matchWrap(0, first ? 0 : 10, 0, 0));
             first = false;
             if (single != null && single.optLong("best") != 0) {
@@ -409,51 +421,232 @@ public class WcaResultsFragment extends Fragment {
         body.addView(card, ui.matchWrap(0, 4, 0, 4));
     }
 
+    private static final int W_COMP = 190, W_ROUND = 112, W_PLACE = 56, W_SINGLE = 100, W_AVG = 100, W_SOLVES = 290;
+
     private void addHistory(JSONArray results) throws Exception {
-        // Group the results by competition.
-        Map<String, List<JSONObject>> byComp = new LinkedHashMap<>();
+        List<JSONObject> all = new ArrayList<>();
+        java.util.Set<String> evSet = new java.util.HashSet<>();
         for (int i = 0; i < results.length(); i++) {
             JSONObject r = results.getJSONObject(i);
-            String cid = r.optString("competition_id");
-            if (cid.isEmpty()) continue;
-            List<JSONObject> list = byComp.get(cid);
-            if (list == null) {
-                list = new ArrayList<>();
-                byComp.put(cid, list);
-            }
-            list.add(r);
+            if (r.optString("competition_id").isEmpty()) continue;
+            all.add(r);
+            evSet.add(r.optString("event_id"));
         }
-        final Map<String, String[]> info = compInfo;
-        List<String> ids = new ArrayList<>(byComp.keySet());
-        fetchMissingComps(ids);
-        Collections.sort(ids, new Comparator<String>() {
+        List<String> events = new ArrayList<>(evSet);
+        Collections.sort(events, new Comparator<String>() {
             @Override
             public int compare(String a, String b) {
-                String da = info != null && info.containsKey(a) ? info.get(a)[1] : "9999-99-99";
-                String db = info != null && info.containsKey(b) ? info.get(b)[1] : "9999-99-99";
-                return db.compareTo(da); // newest first; competitions newer than the export first
+                return WcaFormat.eventOrder(a) - WcaFormat.eventOrder(b);
             }
         });
-
-        body.addView(ui.text("Competition history (" + ids.size() + ")", 18, true, 1f),
-                ui.matchWrap(4, 14, 4, 2));
-        body.addView(ui.text("Results are fetched from the WCA website each time you open or refresh "
-                + "a competitor. The WCA adds a competition here after its results are published. "
-                + "Competitions after 2026-10-18 are looked up online.", 12, false, 0.7f),
-                ui.matchWrap(4, 0, 4, 6));
-
-        int limit = Math.min(shown, ids.size());
-        for (int i = 0; i < limit; i++) {
-            String cid = ids.get(i);
-            body.addView(buildCompetitionCard(cid, byComp.get(cid)), ui.matchWrap(0, 4, 0, 4));
+        if (events.isEmpty()) return;
+        if (historyEvent == null || !events.contains(historyEvent)) {
+            historyEvent = events.contains("333") ? "333" : events.get(0);
         }
-        if (limit < ids.size()) {
-            TextView more = ui.pill("Show more (" + (ids.size() - limit) + " left)", false);
+
+        body.addView(ui.text("Previous results", 18, true, 1f), ui.matchWrap(4, 14, 4, 6));
+
+        // Event picker: one icon per event the person has results in.
+        android.widget.HorizontalScrollView pickScroll = new android.widget.HorizontalScrollView(requireContext());
+        pickScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout pick = new LinearLayout(requireContext());
+        pick.setOrientation(LinearLayout.HORIZONTAL);
+        pick.setGravity(Gravity.CENTER_VERTICAL);
+        pickScroll.addView(pick);
+        for (final String evId : events) {
+            View item;
+            boolean sel = evId.equals(historyEvent);
+            android.graphics.drawable.Drawable ic = ui.eventIcon(evId, 28, ui.text);
+            if (ic != null) {
+                android.widget.ImageView iv = new android.widget.ImageView(requireContext());
+                iv.setImageDrawable(ic);
+                iv.setScaleType(android.widget.ImageView.ScaleType.CENTER);
+                iv.setAlpha(sel ? 1f : 0.35f);
+                iv.setContentDescription(WcaFormat.eventName(evId));
+                item = iv;
+            } else {
+                item = ui.pill(WcaFormat.eventName(evId), sel);
+            }
+            item.setOnClickListener(v -> {
+                historyEvent = evId;
+                shown = PAGE_SIZE;
+                render();
+            });
+            pick.addView(item, ui.lp(ui.dp(44), ui.dp(44), 0, 0, 4, 0));
+        }
+        body.addView(pickScroll, ui.matchWrap(0, 0, 0, 6));
+
+        // Rows for the chosen event, newest competition first and the final before earlier rounds.
+        final Map<String, String[]> info = compInfo;
+        List<JSONObject> rows = new ArrayList<>();
+        for (JSONObject r : all) if (historyEvent.equals(r.optString("event_id"))) rows.add(r);
+        Collections.sort(rows, new Comparator<JSONObject>() {
+            @Override
+            public int compare(JSONObject a, JSONObject b) {
+                String ia = a.optString("competition_id"), ib = b.optString("competition_id");
+                String da = info != null && info.containsKey(ia) ? info.get(ia)[1] : "9999-99-99";
+                String db = info != null && info.containsKey(ib) ? info.get(ib)[1] : "9999-99-99";
+                int c = db.compareTo(da);
+                if (c != 0) return c;
+                c = ib.compareTo(ia);
+                if (c != 0) return c;
+                return WcaFormat.roundRank(b.optString("round_type_id"))
+                        - WcaFormat.roundRank(a.optString("round_type_id"));
+            }
+        });
+        int limit = Math.min(shown, rows.size());
+        List<String> ids = new ArrayList<>();
+        for (int i = 0; i < limit; i++) {
+            String cid = rows.get(i).optString("competition_id");
+            if (!ids.contains(cid)) ids.add(cid);
+        }
+        fetchMissingComps(ids);
+
+        LinearLayout card = ui.card(false);
+        card.setPadding(0, 0, 0, 0);
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(requireContext());
+        LinearLayout table = new LinearLayout(requireContext());
+        table.setOrientation(LinearLayout.VERTICAL);
+        hs.addView(table);
+
+        LinearLayout header = tableRow(0);
+        header.addView(cell("Competition", W_COMP, true));
+        header.addView(cell("Round", W_ROUND, true));
+        header.addView(cell("Place", W_PLACE, true));
+        header.addView(cell("Single", W_SINGLE, true));
+        header.addView(cell("Average", W_AVG, true));
+        header.addView(cell("Solves", W_SOLVES, true));
+        table.addView(header);
+
+        LinearLayout evRow = tableRow(1);
+        TextView evName = ui.text(WcaFormat.eventName(historyEvent), 14, true, 1f);
+        ui.setEventIcon(evName, historyEvent, 20, ui.text);
+        evRow.addView(evName);
+        table.addView(evRow);
+
+        String lastComp = "";
+        for (int i = 0; i < limit; i++) {
+            JSONObject r = rows.get(i);
+            final String cid = r.optString("competition_id");
+            String ev = r.optString("event_id");
+            LinearLayout line = tableRow(i % 2 == 0 ? 2 : 3);
+            if (cid.equals(lastComp)) {
+                line.addView(cell("", W_COMP, false));
+            } else {
+                String cname = info != null && info.containsKey(cid) ? info.get(cid)[0] : cid;
+                TextView link = cell(cname, W_COMP, false);
+                link.setTextColor(0xFFE8531F);
+                link.setPaintFlags(link.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+                final String linkName = cname;
+                link.setOnClickListener(v -> openCompetition(cid, linkName));
+                line.addView(link);
+            }
+            lastComp = cid;
+            line.addView(cell(WcaFormat.roundName(r.optString("round_type_id")), W_ROUND, false));
+            int pos = r.optInt("pos", 0);
+            line.addView(cell(pos > 0 ? String.valueOf(pos) : "", W_PLACE, false));
+            line.addView(resultCell(WcaFormat.formatResult(r.optLong("best"), ev, false),
+                    regionTag(r, "regional_single_record"), W_SINGLE));
+            line.addView(resultCell(WcaFormat.formatResult(r.optLong("average"), ev, true),
+                    regionTag(r, "regional_average_record"), W_AVG));
+            line.addView(cell(solvesText(r.optJSONArray("attempts"), ev), W_SOLVES, false));
+            table.addView(line);
+        }
+        card.addView(hs);
+        body.addView(card, ui.matchWrap(0, 4, 0, 4));
+
+        if (limit < rows.size()) {
+            TextView more = ui.pill("Show more (" + (rows.size() - limit) + " left)", false);
             more.setOnClickListener(v -> {
                 shown += PAGE_SIZE;
                 render();
             });
             body.addView(more, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 8));
+        }
+        body.addView(ui.text("Tap a competition name to open it. Results come from the WCA website "
+                + "each time you open or refresh a competitor.", 12, false, 0.7f), ui.matchWrap(4, 4, 4, 6));
+    }
+
+    /** kind: 0 header, 1 event title, 2 and 3 alternating result rows. */
+    private LinearLayout tableRow(int kind) {
+        LinearLayout row = new LinearLayout(requireContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(ui.dp(12), ui.dp(kind == 0 ? 10 : 8), ui.dp(12), ui.dp(kind == 0 ? 10 : 8));
+        if (kind == 1 || kind == 3) {
+            row.setBackgroundColor(androidx.core.graphics.ColorUtils.blendARGB(ui.itemBg, ui.itemText, 0.07f));
+        }
+        return row;
+    }
+
+    private TextView cell(String s, int widthDp, boolean bold) {
+        TextView t = ui.text(s, 14, bold, 1f);
+        t.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT));
+        t.setPadding(0, 0, ui.dp(8), 0);
+        return t;
+    }
+
+    private View resultCell(String value, String tag, int widthDp) {
+        if (value.isEmpty()) return cell("", widthDp, false);
+        android.widget.FrameLayout f = ui.resultCell("", value, tag, 14, true);
+        f.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT));
+        return f;
+    }
+
+    /** WR, NR or a continental tag like AsR from a results row; PR and empty values give "". */
+    private static String regionTag(JSONObject r, String key) {
+        if (!r.has(key) || r.isNull(key)) return "";
+        String v = r.optString(key, "").trim();
+        if (v.isEmpty() || "null".equalsIgnoreCase(v)) return "";
+        String u = v.toUpperCase(Locale.US);
+        if (u.equals("WR") || u.equals("NR") || u.equals("CR")) return u;
+        if (u.endsWith("R") && u.length() <= 3) return v;
+        return "";
+    }
+
+    /** All solves in order; on a five-solve average the best and the worst are in brackets. */
+    private static String solvesText(JSONArray at, String ev) {
+        if (at == null || at.length() == 0) return "";
+        int n = at.length();
+        long[] v = new long[n];
+        boolean allSet = true;
+        for (int i = 0; i < n; i++) {
+            v[i] = at.optLong(i);
+            if (v[i] == 0) allSet = false;
+        }
+        int bi = -1, wi = -1;
+        if (n == 5 && allSet && !"333mbf".equals(ev)) {
+            for (int i = 0; i < n; i++) {
+                if (v[i] > 0 && (bi < 0 || v[i] < v[bi])) bi = i;
+            }
+            for (int i = n - 1; i >= 0; i--) {
+                if (i == bi) continue;
+                if (wi < 0) { wi = i; continue; }
+                boolean iBad = v[i] < 0, wBad = v[wi] < 0;
+                if (iBad && !wBad) wi = i;
+                else if (iBad == wBad && !iBad && v[i] > v[wi]) wi = i;
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            String t = WcaFormat.formatResult(v[i], ev, false);
+            if (t.isEmpty()) continue;
+            if (sb.length() > 0) sb.append("  ");
+            sb.append(i == bi || i == wi ? "(" + t + ")" : t);
+        }
+        return sb.toString();
+    }
+
+    /** Opens the competition in the WCA Live tab, or on the WCA website if the tab cannot be found. */
+    private void openCompetition(String cid, String name) {
+        store.setPendingComp(cid, name);
+        View pager = requireActivity().findViewById(R.id.pager);
+        if (pager instanceof androidx.viewpager.widget.ViewPager) {
+            ((androidx.viewpager.widget.ViewPager) pager).setCurrentItem(TimerFragmentMain.LIVE_PAGE, true);
+        } else {
+            store.takePendingComp();
+            startActivity(new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://www.worldcubeassociation.org/competitions/" + Uri.encode(cid))));
         }
     }
 
@@ -501,71 +694,5 @@ public class WcaResultsFragment extends Fragment {
             compInfoChanged = false;
             render();
         }
-    }
-
-    private View buildCompetitionCard(String cid, List<JSONObject> list) {
-        String name = cid;
-        String date = "";
-        if (compInfo != null && compInfo.containsKey(cid)) {
-            name = compInfo.get(cid)[0];
-            date = compInfo.get(cid)[1];
-        }
-        Collections.sort(list, new Comparator<JSONObject>() {
-            @Override
-            public int compare(JSONObject a, JSONObject b) {
-                int ea = WcaFormat.eventOrder(a.optString("event_id"));
-                int eb = WcaFormat.eventOrder(b.optString("event_id"));
-                if (ea != eb) return ea - eb;
-                return WcaFormat.roundRank(a.optString("round_type_id"))
-                        - WcaFormat.roundRank(b.optString("round_type_id"));
-            }
-        });
-
-        LinearLayout card = ui.card(false);
-        card.addView(ui.text(name, 16, true, 1f));
-        if (!date.isEmpty()) card.addView(ui.text(date, 12, false, 0.7f));
-
-        final List<TextView> attemptViews = new ArrayList<>();
-        for (JSONObject r : list) {
-            String ev = r.optString("event_id");
-            int pos = r.optInt("pos", 0);
-            String best = WcaFormat.formatResult(r.optLong("best"), ev, false);
-            String avg = WcaFormat.formatResult(r.optLong("average"), ev, true);
-            StringBuilder line = new StringBuilder();
-            line.append(WcaFormat.eventName(ev)).append("  \u00B7  ")
-                    .append(WcaFormat.roundName(r.optString("round_type_id")));
-            if (pos > 0) line.append("  \u00B7  #").append(pos);
-            card.addView(ui.text(line.toString(), 14, true, 1f), ui.matchWrap(0, 8, 0, 0));
-            StringBuilder res = new StringBuilder();
-            if (!best.isEmpty()) res.append("best ").append(best);
-            if (!avg.isEmpty()) res.append(res.length() > 0 ? "   " : "").append("avg ").append(avg);
-            if (res.length() > 0) card.addView(ui.text(res.toString(), 14, false, 0.95f));
-
-            JSONArray at = r.optJSONArray("attempts");
-            if (at != null && at.length() > 0) {
-                StringBuilder sb = new StringBuilder();
-                for (int i = 0; i < at.length(); i++) {
-                    String t = WcaFormat.formatResult(at.optLong(i), ev, false);
-                    if (t.isEmpty()) continue;
-                    if (sb.length() > 0) sb.append("   ");
-                    sb.append(t);
-                }
-                if (sb.length() > 0) {
-                    TextView tv = ui.text(sb.toString(), 13, false, 0.8f);
-                    tv.setVisibility(View.GONE);
-                    attemptViews.add(tv);
-                    card.addView(tv);
-                }
-            }
-        }
-        if (!attemptViews.isEmpty()) {
-            card.addView(ui.text("Tap to show or hide each solve", 11, false, 0.5f), ui.matchWrap(0, 6, 0, 0));
-            card.setOnClickListener(v -> {
-                for (TextView tv : attemptViews) {
-                    tv.setVisibility(tv.getVisibility() == View.GONE ? View.VISIBLE : View.GONE);
-                }
-            });
-        }
-        return card;
     }
 }
