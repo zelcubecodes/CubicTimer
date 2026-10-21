@@ -75,6 +75,9 @@
             <activity
             android:name="com.hatopigeon.cubictimer.activity.RecordsActivity"
             android:label="@string/records_title" />
+        <activity
+            android:name="com.hatopigeon.cubictimer.activity.RankingsActivity"
+            android:label="Rankings" />
     </application>
 
 </manifest>
