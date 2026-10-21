@@ -392,6 +392,12 @@
             android:summary="@string/pref_summary_wca_auto_refresh"
             android:title="@string/pref_title_wca_auto_refresh" />
 
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="wca_show_attempts"
+            android:summary="@string/pref_summary_wca_show_attempts"
+            android:title="@string/pref_title_wca_show_attempts" />
+
     </PreferenceCategory>
 
     <Preference android:layout="@layout/divider_preference_category" />
