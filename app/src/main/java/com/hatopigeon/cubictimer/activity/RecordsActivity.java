@@ -368,7 +368,7 @@ public class RecordsActivity extends AppCompatActivity {
         final String ev = mEventIds.get(mEventIndex);
         final boolean avg = mShowAverage;
         mLiveNote.setVisibility(View.GONE);
-        String url = "https://wca-rest-api.robiningelbrecht.be/rank/world/" + (avg ? "average" : "single")
+        String url = "https://raw.githubusercontent.com/robiningelbrecht/wca-rest-api/refs/heads/v1/rank/world/" + (avg ? "average" : "single")
                 + "/" + ev + ".json";
         com.hatopigeon.cubictimer.wca.WcaHttp.get(url, new com.hatopigeon.cubictimer.wca.WcaHttp.Callback() {
             @Override

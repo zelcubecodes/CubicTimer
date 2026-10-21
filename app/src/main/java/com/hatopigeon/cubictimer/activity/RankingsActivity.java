@@ -42,7 +42,7 @@ import java.util.Map;
 
 /** World, continent and country rankings from the unofficial WCA static JSON API (updated daily). */
 public class RankingsActivity extends AppCompatActivity {
-    private static final String API = "https://wca-rest-api.robiningelbrecht.be";
+    private static final String API = "https://raw.githubusercontent.com/robiningelbrecht/wca-rest-api/refs/heads/v1";
     private static final int PAGE = 25;
     private static final String[] EVENTS = {"333", "222", "444", "555", "666", "777", "333bf", "333fm",
             "333oh", "clock", "minx", "pyram", "skewb", "sq1", "444bf", "555bf", "333mbf", "fto"};
@@ -182,9 +182,9 @@ public class RankingsActivity extends AppCompatActivity {
         controls.addView(averageTab, lp);
         page.addView(controls);
 
-        status = tv("", 13, false, itemText);
-        status.setPadding(dp(12), dp(8), dp(12), dp(8));
-        status.setBackground(rounded(itemBg, dp(8)));
+        status = tv("", 13, false, text);
+        status.setAlpha(0.8f);
+        status.setPadding(dp(4), dp(4), dp(4), dp(4));
         status.setVisibility(View.GONE);
         page.addView(status, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
