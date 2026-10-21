@@ -577,6 +577,8 @@
     <string name="list_sort_descending">Descending</string>
 
     <string name="pref_category_title_wca">WCA settings</string>
+    <string name="pref_title_wca_show_attempts">Show attempts in WCA Live results</string>
+    <string name="pref_summary_wca_show_attempts">Show every solve under each competitor in a round</string>
     <string name="pref_title_wca_auto_refresh">Auto-refresh WCA Live</string>
     <string name="pref_summary_wca_auto_refresh">Refresh results every 30 seconds while viewing a round</string>
 </resources>
