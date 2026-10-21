@@ -66,6 +66,8 @@ public class RecordsActivity extends AppCompatActivity {
     private TextView mSingleTab;
     private TextView mAverageTab;
     private TextView mEmptyText;
+    private TextView mLiveNote;
+    private int mLiveToken = 0;
     private LineChart mChart;
     private RecyclerView mList;
 
@@ -240,6 +242,15 @@ public class RecordsActivity extends AppCompatActivity {
         pickerLp.setMargins(dp(16), dp(4), dp(16), dp(8));
         root.addView(mEventButton, pickerLp);
 
+        mLiveNote = text("", 13, false, 1f);
+        mLiveNote.setPadding(dp(14), dp(8), dp(14), dp(8));
+        mLiveNote.setBackground(rounded(mCardColor, dp(8)));
+        mLiveNote.setVisibility(View.GONE);
+        LinearLayout.LayoutParams liveLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        liveLp.setMargins(dp(16), 0, dp(16), dp(8));
+        root.addView(mLiveNote, liveLp);
+
         // Single / Average tabs.
         LinearLayout tabs = new LinearLayout(this);
         tabs.setOrientation(LinearLayout.HORIZONTAL);
@@ -301,23 +312,105 @@ public class RecordsActivity extends AppCompatActivity {
         InsetsUtils.applySafeInsetsPadding(root, false);
     }
 
+    private android.graphics.drawable.Drawable eventIcon(String id, int sizeDp) {
+        int res = getResources().getIdentifier("ic_event_" + id.toLowerCase(Locale.US), "drawable", getPackageName());
+        if (res == 0) return null;
+        android.graphics.drawable.Drawable d = androidx.core.content.ContextCompat.getDrawable(this, res);
+        if (d == null) return null;
+        d = androidx.core.graphics.drawable.DrawableCompat.wrap(d.mutate());
+        androidx.core.graphics.drawable.DrawableCompat.setTint(d, mTextColor);
+        d.setBounds(0, 0, dp(sizeDp), dp(sizeDp));
+        return d;
+    }
+
     private void showEventPicker() {
-        MaterialDialog dialog = new MaterialDialog.Builder(this)
-                .title(R.string.records_event)
-                .items(mEventNames.toArray(new CharSequence[0]))
-                .itemsCallbackSingleChoice(mEventIndex, (d, itemView, which, text) -> {
-                    mEventIndex = which;
-                    refresh();
-                    return true;
-                })
-                .build();
-        ThemeUtils.roundAndShowDialog(this, dialog);
+        final android.app.Dialog dialog = new android.app.Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(8), dp(8), dp(8), dp(8));
+        sv.addView(list);
+        sv.setBackground(rounded(mCardColor, dp(20)));
+        for (int i = 0; i < mEventNames.size(); i++) {
+            final int index = i;
+            TextView row = text(mEventNames.get(i), 16, i == mEventIndex, 1f);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(10), dp(14), dp(10));
+            row.setMinHeight(dp(48));
+            android.graphics.drawable.Drawable ic = eventIcon(mEventIds.get(i), 26);
+            if (ic != null) {
+                row.setCompoundDrawablesRelative(ic, null, null, null);
+                row.setCompoundDrawablePadding(dp(14));
+            }
+            if (i == mEventIndex) row.setBackground(rounded(mPanelColor, dp(12)));
+            row.setOnClickListener(v -> {
+                mEventIndex = index;
+                refresh();
+                dialog.dismiss();
+            });
+            list.addView(row, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
+        dialog.setContentView(sv);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+            dialog.getWindow().setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.9f),
+                    (int) (getResources().getDisplayMetrics().heightPixels * 0.8f));
+        }
+        dialog.setCanceledOnTouchOutside(true);
+        dialog.show();
+    }
+
+    /** Shows today's world record (the top of the daily-updated world ranking) above the history. */
+    private void fetchLiveRecord() {
+        final int token = ++mLiveToken;
+        final String ev = mEventIds.get(mEventIndex);
+        final boolean avg = mShowAverage;
+        mLiveNote.setVisibility(View.GONE);
+        String url = "https://wca-rest-api.robiningelbrecht.be/rank/world/" + (avg ? "average" : "single")
+                + "/" + ev + ".json";
+        com.hatopigeon.cubictimer.wca.WcaHttp.get(url, new com.hatopigeon.cubictimer.wca.WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String body) {
+                if (token != mLiveToken) return;
+                try {
+                    JSONArray arr = new JSONObject(body).optJSONArray("items");
+                    if (arr == null || arr.length() == 0) return;
+                    JSONObject top = arr.getJSONObject(0);
+                    final String value = com.hatopigeon.cubictimer.wca.WcaFormat.formatResult(
+                            top.optLong("best"), ev, avg);
+                    final String id = top.optString("personId");
+                    mLiveNote.setText("Current world record: " + value + " (" + id + ")");
+                    mLiveNote.setVisibility(View.VISIBLE);
+                    com.hatopigeon.cubictimer.wca.WcaNames.lookup(id, (wcaId, name, iso) -> runOnUiThread(() -> {
+                        if (token != mLiveToken) return;
+                        String f = com.hatopigeon.cubictimer.wca.WcaFlags.emoji(iso);
+                        mLiveNote.setText("Current world record: " + value + "  \u00B7  "
+                                + (f.isEmpty() ? "" : f + " ") + name);
+                    }));
+                } catch (Exception ignored) {
+                    // the history below still works without the live line
+                }
+            }
+
+            @Override
+            public void onError(String message) {
+                // no live line when offline; the saved history is still shown
+            }
+        });
     }
 
     private void refresh() {
         mEventButton.setText(mEventNames.get(mEventIndex) + "  \u25BE");
+        android.graphics.drawable.Drawable evIcon = eventIcon(mEventIds.get(mEventIndex), 26);
+        if (evIcon != null) {
+            mEventButton.setCompoundDrawablesRelative(evIcon, null, null, null);
+            mEventButton.setCompoundDrawablePadding(dp(12));
+        }
         styleTab(mSingleTab, !mShowAverage);
         styleTab(mAverageTab, mShowAverage);
+        fetchLiveRecord();
 
         JSONArray records = currentRecords();
         boolean empty = records.length() == 0;
