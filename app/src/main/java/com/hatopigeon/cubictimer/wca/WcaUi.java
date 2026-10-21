@@ -266,6 +266,30 @@ public final class WcaUi {
         e.setPadding(dp(16), dp(10), dp(16), dp(10));
         e.setMinHeight(dp(48));
         e.setBackground(rounded(itemBg, dp(8)));
+        attachClear(e);
         return e;
+    }
+
+    /** Shows an X at the far right of a search box while it has text; tapping it clears the box. */
+    public void attachClear(final EditText e) {
+        final Drawable x = tinted(R.drawable.ic_wca_close, 20, itemText);
+        e.setCompoundDrawablePadding(dp(8));
+        e.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable ed) {
+                e.setCompoundDrawablesRelative(null, null, ed.length() > 0 ? x : null, null);
+            }
+        });
+        e.setOnTouchListener((v, ev) -> {
+            if (ev.getAction() == android.view.MotionEvent.ACTION_UP && e.getText().length() > 0) {
+                Drawable[] d = e.getCompoundDrawablesRelative();
+                if (d[2] != null && ev.getX() >= e.getWidth() - e.getPaddingEnd() - d[2].getBounds().width() - dp(12)) {
+                    e.setText("");
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 }

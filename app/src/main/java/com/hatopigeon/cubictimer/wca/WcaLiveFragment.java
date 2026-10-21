@@ -116,6 +116,9 @@ public class WcaLiveFragment extends Fragment {
     private final List<TextView> tabTexts = new ArrayList<>();
     private final List<View> tabLines = new ArrayList<>();
     private String searchQuery = null;
+    private LinearLayout suggestBox;
+    private Runnable suggestRunnable = () -> { };
+    private int suggestToken = 0;
     private int visibleCount = 30;
     private LinearLayout recordsBox;
     private boolean recordsLoading, recordsLoaded;
@@ -238,7 +241,7 @@ public class WcaLiveFragment extends Fragment {
         LinearLayout page = new LinearLayout(requireContext());
         page.setOrientation(LinearLayout.VERTICAL);
 
-        page.addView(ui.text("WCA Live", 22, true, 1f), ui.matchWrap(4, 4, 4, 8));
+        page.addView(ui.text("WCA Live", 22, true, 1f), ui.matchWrap(4, 0, 4, 4));
 
         LinearLayout searchRow = new LinearLayout(requireContext());
         searchRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -246,21 +249,37 @@ public class WcaLiveFragment extends Fragment {
         searchInput = ui.input("Search competitions");
         searchInput.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
-                hideKeyboard();
-                doSearch();
+                handler.removeCallbacks(suggestRunnable);
+                runSuggest(searchInput.getText().toString().trim());
                 return true;
             }
             return false;
         });
-        searchRow.addView(searchInput, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        searchRow.addView(searchInput, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
         ((LinearLayout.LayoutParams) searchInput.getLayoutParams()).weight = 1f;
-        TextView go = ui.pill("Search", true);
-        go.setOnClickListener(v -> {
-            hideKeyboard();
-            doSearch();
+        page.addView(searchRow, ui.matchWrap(0, 0, 0, 6));
+
+        suggestBox = new LinearLayout(requireContext());
+        suggestBox.setOrientation(LinearLayout.VERTICAL);
+        suggestBox.setBackground(ui.rounded(ui.itemBg, ui.dp(8)));
+        suggestBox.setVisibility(View.GONE);
+        page.addView(suggestBox, ui.matchWrap(0, 0, 0, 8));
+        searchInput.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence x, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence x, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable e) {
+                final String q = e.toString().trim();
+                handler.removeCallbacks(suggestRunnable);
+                if (q.length() < 2) {
+                    suggestToken++;
+                    suggestBox.removeAllViews();
+                    suggestBox.setVisibility(View.GONE);
+                    return;
+                }
+                suggestRunnable = () -> runSuggest(q);
+                handler.postDelayed(suggestRunnable, 350);
+            }
         });
-        searchRow.addView(go);
-        page.addView(searchRow, ui.matchWrap(0, 0, 0, 8));
 
         LinearLayout tabCard = new LinearLayout(requireContext());
         tabCard.setOrientation(LinearLayout.HORIZONTAL);
@@ -299,11 +318,20 @@ public class WcaLiveFragment extends Fragment {
         listContainer.setOrientation(LinearLayout.VERTICAL);
         LinearLayout homeColumn = new LinearLayout(requireContext());
         homeColumn.setOrientation(LinearLayout.VERTICAL);
-        homeColumn.addView(listContainer, new LinearLayout.LayoutParams(
+        // The competitions have their own scroller, so Recent records stays reachable underneath.
+        ScrollView listScroll = new ScrollView(requireContext());
+        listScroll.setVerticalScrollBarEnabled(false);
+        listScroll.setOnTouchListener((v, ev) -> {
+            v.getParent().requestDisallowInterceptTouchEvent(true);
+            return false;
+        });
+        listScroll.addView(listContainer, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        homeColumn.addView(listScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ui.dp(340)));
         recordsBox = new LinearLayout(requireContext());
         recordsBox.setOrientation(LinearLayout.VERTICAL);
-        homeColumn.addView(recordsBox, ui.matchWrap(0, 12, 0, 16));
+        homeColumn.addView(recordsBox, ui.matchWrap(0, 20, 0, 16));
         scroll.addView(homeColumn, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(scroll, new LinearLayout.LayoutParams(
@@ -330,13 +358,104 @@ public class WcaLiveFragment extends Fragment {
         }
     }
 
-    private void doSearch() {
-        String q = searchInput.getText().toString().trim();
-        searchQuery = q.isEmpty() ? null : q;
-        filterMode = 0;
-        visibleCount = 30;
-        styleTabs();
-        loadCompetitions(searchQuery);
+    /** Looks up competitions of any date that match the typed text and shows them in a drop-down. */
+    private void runSuggest(final String q) {
+        if (q.length() < 2) return;
+        final int token = ++suggestToken;
+        suggestBox.removeAllViews();
+        suggestBox.setVisibility(View.VISIBLE);
+        suggestBox.addView(ui.text("Searching...", 14, false, 0.8f), ui.matchWrap(14, 12, 14, 12));
+        suggestBox.setBackground(ui.rounded(ui.itemBg, ui.dp(8)));
+        Calendar from = Calendar.getInstance();
+        from.add(Calendar.YEAR, -20);
+        try {
+            JSONObject vars = new JSONObject();
+            vars.put("from", isoDate(from));
+            vars.put("limit", 8);
+            vars.put("filter", q);
+            JSONObject body = new JSONObject();
+            body.put("query", "query($from: Date, $filter: String, $limit: Int) "
+                    + "{ competitions(from: $from, filter: $filter, limit: $limit) "
+                    + "{ id wcaId name shortName startDate endDate } }");
+            body.put("variables", vars);
+            WcaHttp.postJson(API, body.toString(), new WcaHttp.Callback() {
+                @Override
+                public void onSuccess(String text) {
+                    if (!isAdded() || token != suggestToken) return;
+                    suggestBox.removeAllViews();
+                    try {
+                        JSONArray arr = new JSONObject(text).getJSONObject("data").getJSONArray("competitions");
+                        List<Comp> out = new ArrayList<>();
+                        for (int i = 0; i < arr.length(); i++) {
+                            JSONObject o = arr.getJSONObject(i);
+                            Comp c = new Comp();
+                            c.id = o.optString("id");
+                            c.wcaId = o.optString("wcaId");
+                            c.name = o.optString("name");
+                            c.start = o.optString("startDate");
+                            c.end = o.optString("endDate");
+                            out.add(c);
+                        }
+                        Collections.sort(out, new Comparator<Comp>() {
+                            @Override
+                            public int compare(Comp a, Comp b) {
+                                return b.start.compareTo(a.start);
+                            }
+                        });
+                        if (out.isEmpty()) {
+                            suggestBox.addView(ui.text("No competitions found.", 14, false, 0.8f),
+                                    ui.matchWrap(14, 12, 14, 12));
+                        }
+                        for (final Comp c : out) {
+                            suggestBox.addView(buildSuggestRow(c));
+                        }
+                    } catch (Exception e) {
+                        suggestBox.addView(ui.text("Unexpected response from WCA Live.", 14, false, 0.8f),
+                                ui.matchWrap(14, 12, 14, 12));
+                    }
+                }
+
+                @Override
+                public void onError(String message) {
+                    if (!isAdded() || token != suggestToken) return;
+                    suggestBox.removeAllViews();
+                    suggestBox.addView(ui.text(WcaHttp.describe(requireContext(), message) + ".", 14, false, 0.8f),
+                            ui.matchWrap(14, 12, 14, 12));
+                }
+            });
+        } catch (Exception e) {
+            suggestBox.removeAllViews();
+            suggestBox.setVisibility(View.GONE);
+        }
+    }
+
+    private View buildSuggestRow(final Comp c) {
+        LinearLayout row = new LinearLayout(requireContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10));
+        final TextView flag = ui.text("", 22, false, 1f);
+        flag.setGravity(Gravity.CENTER);
+        row.addView(flag, ui.lp(ui.dp(36), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        WcaNames.lookupCompCountry(c.wcaId, (id, iso) -> {
+            if (isAdded()) flag.setText(WcaFlags.emoji(iso));
+        });
+        LinearLayout mid = new LinearLayout(requireContext());
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.addView(ui.text(c.name, 15, true, 1f));
+        if (!c.start.isEmpty()) mid.addView(ui.text(fmtDates(c.start, c.end), 12, false, 0.8f));
+        row.addView(mid, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+        ((LinearLayout.LayoutParams) mid.getLayoutParams()).weight = 1f;
+        ui.recolor(row, ui.text, ui.itemText);
+        row.setOnClickListener(v -> {
+            hideKeyboard();
+            suggestToken++;
+            suggestBox.removeAllViews();
+            suggestBox.setVisibility(View.GONE);
+            searchInput.setText("");
+            openCompetition(c);
+        });
+        return row;
     }
 
     private static String isoDate(Calendar c) {

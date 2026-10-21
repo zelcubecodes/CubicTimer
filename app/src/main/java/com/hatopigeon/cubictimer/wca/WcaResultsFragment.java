@@ -121,7 +121,7 @@ public class WcaResultsFragment extends Fragment {
         recordsRow.addView(rankings);
         page.addView(recordsRow, ui.matchWrap(0, 0, 0, 8));
 
-        page.addView(ui.text("Pinned competitors", 13, true, 0.8f), ui.matchWrap(4, 0, 4, 4));
+        page.addView(ui.text("Starred competitors", 13, true, 0.8f), ui.matchWrap(4, 0, 4, 4));
         android.widget.HorizontalScrollView pinScroll = new android.widget.HorizontalScrollView(requireContext());
         pinScroll.setHorizontalScrollBarEnabled(false);
         pinnedRow = new LinearLayout(requireContext());
@@ -138,7 +138,7 @@ public class WcaResultsFragment extends Fragment {
         page.addView(body, ui.matchWrap(0, 0, 0, 0));
 
         status.setText("Type a WCA ID (like 2023CUAR02) or a name, then tap Search. "
-                + "Open a competitor and tap Pin to keep them here.");
+                + "Open a competitor and tap the star to keep them here.");
         return scroll;
     }
 
@@ -331,7 +331,29 @@ public class WcaResultsFragment extends Fragment {
 
             // Header card
             LinearLayout head = ui.card(false);
-            head.addView(ui.text((flag.isEmpty() ? "" : flag + " ") + (name.isEmpty() ? id : name), 20, true, 1f));
+            final String pinId = id;
+            final String pinName = name;
+            LinearLayout titleRow = new LinearLayout(requireContext());
+            titleRow.setOrientation(LinearLayout.HORIZONTAL);
+            titleRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView titleText = ui.text((flag.isEmpty() ? "" : flag + " ") + (name.isEmpty() ? id : name), 20, true, 1f);
+            titleRow.addView(titleText, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 4, 0));
+            ((LinearLayout.LayoutParams) titleText.getLayoutParams()).weight = 1f;
+            final android.widget.ImageView star = ui.iconButton(store.isPinned(pinId)
+                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText);
+            star.setContentDescription("Star this competitor");
+            star.setOnClickListener(v -> {
+                boolean now = store.togglePinned(pinId, pinName);
+                star.setImageDrawable(ui.tinted(now ? R.drawable.ic_wca_star_filled
+                        : R.drawable.ic_wca_star_outline, 24, ui.itemText));
+                renderPinned();
+            });
+            titleRow.addView(star);
+            android.widget.ImageView refreshIcon = ui.iconButton(R.drawable.ic_wca_refresh, 24, ui.itemText);
+            refreshIcon.setContentDescription("Refresh");
+            refreshIcon.setOnClickListener(v -> loadPerson(pinId));
+            titleRow.addView(refreshIcon);
+            head.addView(titleRow);
             String sub = id;
             int comps = root.optInt("competition_count", -1);
             if (comps >= 0) sub += "  \u00B7  " + comps + " competitions";
@@ -347,23 +369,6 @@ public class WcaResultsFragment extends Fragment {
                         + recs.optInt("continental") + " continental, " + recs.optInt("national")
                         + " national", 13, false, 0.85f));
             }
-            final String pinId = id;
-            final String pinName = name;
-            LinearLayout actions = new LinearLayout(requireContext());
-            actions.setOrientation(LinearLayout.HORIZONTAL);
-            final TextView pin = ui.pill(store.isPinned(pinId) ? "Pinned \u2713" : "Pin", store.isPinned(pinId));
-            pin.setOnClickListener(v -> {
-                boolean now = store.togglePinned(pinId, pinName);
-                pin.setText(now ? "Pinned \u2713" : "Pin");
-                ui.stylePill(pin, now);
-                renderPinned();
-            });
-            actions.addView(pin, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-            TextView refresh = ui.pill("Refresh", false);
-            refresh.setOnClickListener(v -> loadPerson(pinId));
-            actions.addView(refresh);
-            head.addView(actions, ui.matchWrap(0, 8, 0, 0));
             body.addView(head, ui.matchWrap(0, 4, 0, 4));
 
             if (fromCache) {
