@@ -695,11 +695,11 @@ public class WcaLiveFragment extends Fragment {
         ((LinearLayout.LayoutParams) mid.getLayoutParams()).weight = 1f;
 
         final ImageView star = ui.iconButton(store.isFavoriteComp(c.wcaId)
-                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText);
+                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.safe);
         star.setOnClickListener(v -> {
             store.toggleFavoriteComp(c.wcaId, c.name);
             star.setImageDrawable(ui.tinted(store.isFavoriteComp(c.wcaId)
-                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText));
+                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.safe));
             if (filterMode == 2) renderList();
         });
         top.addView(star);
@@ -860,7 +860,8 @@ public class WcaLiveFragment extends Fragment {
         detailTitle = ui.text("", 18, true, 1f);
         header.addView(detailTitle, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
         ((LinearLayout.LayoutParams) detailTitle.getLayoutParams()).weight = 1f;
-        TextView refresh = ui.pill("Refresh", false);
+        ImageView refresh = ui.iconButton(R.drawable.ic_wca_refresh, 24, ui.text);
+        refresh.setContentDescription("Refresh");
         refresh.setOnClickListener(v -> {
             if (compMode && compPage != null) compPage.reload();
             else fetchResults();
@@ -1374,6 +1375,13 @@ public class WcaLiveFragment extends Fragment {
         head.setGravity(Gravity.CENTER_VERTICAL);
         head.setPadding(ui.dp(20), ui.dp(10), ui.dp(8), ui.dp(4));
         String flag = p == null ? "" : WcaFlags.emoji(p.iso);
+        final android.widget.FrameLayout avatar = ui.avatar(name, "", 40);
+        head.addView(avatar, ui.lp(ui.dp(40), ui.dp(40), 0, 0, 12, 0));
+        if (p != null && !p.wcaId.isEmpty()) {
+            WcaNames.fetchAvatar(p.wcaId, url -> {
+                if (isAdded()) ui.setAvatarUrl(avatar, url);
+            });
+        }
         TextView title = ui.text((flag.isEmpty() ? "" : flag + " ") + name, 18, true, 1f);
         head.addView(title, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 4, 0));
         ((LinearLayout.LayoutParams) title.getLayoutParams()).weight = 1f;
@@ -1385,16 +1393,16 @@ public class WcaLiveFragment extends Fragment {
             });
         }
         final ImageView star = ui.iconButton(isStarred(p, key)
-                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText);
+                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.safe);
         star.setContentDescription("Favorite");
         star.setOnClickListener(v -> {
             boolean now = toggleStar(p, name, key);
             star.setImageDrawable(ui.tinted(now
-                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText));
+                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.safe));
             renderResults();
         });
         head.addView(star);
-        ImageView close = ui.iconButton(R.drawable.ic_wca_close, 24, ui.itemText);
+        ImageView close = ui.iconButton(R.drawable.ic_wca_close, 24, ui.safe);
         close.setContentDescription("Close");
         close.setOnClickListener(v -> {
             if (holder[0] != null) holder[0].dismiss();
@@ -1545,7 +1553,7 @@ public class WcaLiveFragment extends Fragment {
                 openInResults(pastId);
             });
         }
-        ImageView close = ui.iconButton(R.drawable.ic_wca_close, 24, ui.itemText);
+        ImageView close = ui.iconButton(R.drawable.ic_wca_close, 24, ui.safe);
         close.setContentDescription("Close");
         close.setOnClickListener(v -> {
             if (holder[0] != null) holder[0].dismiss();

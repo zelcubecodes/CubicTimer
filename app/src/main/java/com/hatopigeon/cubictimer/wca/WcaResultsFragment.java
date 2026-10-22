@@ -101,7 +101,7 @@ public class WcaResultsFragment extends Fragment {
         LinearLayout row = new LinearLayout(requireContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        input = ui.input("WCA ID or name");
+        input = ui.input("Search competitors or competitions");
         input.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 search();
@@ -166,7 +166,7 @@ public class WcaResultsFragment extends Fragment {
         body.setOrientation(LinearLayout.VERTICAL);
         page.addView(body, ui.matchWrap(0, 0, 0, 0));
 
-        status.setText("Type a WCA ID (like 2023CUAR02) or a name, then tap Search. "
+        status.setText("Search for a competitor (name or WCA ID like 2023CUAR02) or a competition. "
                 + "Open a competitor and tap the star to keep them here.");
         checkPendingPerson();
         return scroll;
@@ -255,67 +255,195 @@ public class WcaResultsFragment extends Fragment {
         hideSuggestions();
     }
 
-    /** Drop-down under the search box: people whose name or WCA ID matches what was typed. */
+    // ---------------------------------------------------------------- search (competitors + competitions)
+
+    private static final Pattern COMP_ID = Pattern.compile("^[A-Za-z0-9]+20\\d\\d$");
+
+    private static class Hit {
+        String id = "", title = "", sub = "", avatar = "", iso = "";
+    }
+
+    private interface HitsDone {
+        void done(List<Hit> people, List<Hit> comps, boolean failed);
+    }
+
+    private void parseComps(String text, List<Hit> out) throws Exception {
+        String t = text.trim();
+        JSONArray arr;
+        if (t.startsWith("[")) {
+            arr = new JSONArray(t);
+        } else {
+            arr = new JSONObject(t).optJSONArray("result");
+        }
+        if (arr == null) return;
+        for (int i = 0; i < arr.length() && out.size() < 25; i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            Hit h = new Hit();
+            h.id = o.optString("id");
+            h.title = o.optString("name");
+            if (h.id.isEmpty() || h.title.isEmpty()) continue;
+            h.iso = WcaFlags.code(o.optString("country_iso2"));
+            String city = o.optString("city");
+            String when = WcaCompPage.dates(o.optString("start_date"), o.optString("end_date"));
+            h.sub = when + (city.isEmpty() ? "" : "  \u00B7  " + city)
+                    + (h.iso.isEmpty() ? "" : ", " + WcaCompPage.countryName(h.iso));
+            out.add(h);
+        }
+    }
+
+    private void fetchComps(final String q, final List<Hit> out, final boolean fallback,
+                            final Runnable ok, final Runnable fail) {
+        String url = fallback ? WCA + "/competitions?q=" + Uri.encode(q) + "&sort=-start_date"
+                : WCA + "/search/competitions?q=" + Uri.encode(q);
+        WcaHttp.get(url, new WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String text) {
+                try {
+                    parseComps(text, out);
+                } catch (Exception e) {
+                    if (!fallback) {
+                        fetchComps(q, out, true, ok, fail);
+                        return;
+                    }
+                }
+                ok.run();
+            }
+
+            @Override
+            public void onError(String message) {
+                if (!fallback) fetchComps(q, out, true, ok, fail);
+                else fail.run();
+            }
+        });
+    }
+
+    /** Looks up competitors and competitions at the same time, like the search on the WCA website. */
+    private void fetchHits(final String q, final HitsDone done) {
+        final List<Hit> people = new ArrayList<>();
+        final List<Hit> comps = new ArrayList<>();
+        final int[] left = {2};
+        final int[] failed = {0};
+        final Runnable finish = () -> {
+            left[0]--;
+            if (left[0] == 0) done.done(people, comps, failed[0] == 2);
+        };
+        WcaHttp.get(WCA + "/search/users?persons_table=true&q=" + Uri.encode(q), new WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String text) {
+                try {
+                    JSONArray arr = new JSONObject(text).optJSONArray("result");
+                    if (arr != null) {
+                        for (int i = 0; i < arr.length() && people.size() < 25; i++) {
+                            JSONObject o = arr.getJSONObject(i);
+                            Hit h = new Hit();
+                            h.id = o.optString("wca_id");
+                            if (h.id.isEmpty() || "null".equals(h.id)) continue;
+                            h.title = o.optString("name");
+                            h.iso = WcaFlags.code(o.optString("country_iso2"));
+                            h.sub = h.id;
+                            h.avatar = WcaUi.avatarUrl(o, false);
+                            people.add(h);
+                        }
+                    }
+                } catch (Exception e) {
+                    failed[0]++;
+                }
+                finish.run();
+            }
+
+            @Override
+            public void onError(String message) {
+                failed[0]++;
+                finish.run();
+            }
+        });
+        fetchComps(q, comps, false, finish, () -> {
+            failed[0]++;
+            finish.run();
+        });
+    }
+
+    private View hitRow(final Hit h, final boolean comp, boolean inCard) {
+        LinearLayout row = new LinearLayout(requireContext());
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        if (!inCard) row.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8));
+        if (!comp) {
+            row.addView(ui.avatar(h.title, h.avatar, 40), ui.lp(ui.dp(40), ui.dp(40), 0, 0, 12, 0));
+        }
+        LinearLayout col = new LinearLayout(requireContext());
+        col.setOrientation(LinearLayout.VERTICAL);
+        String flag = WcaFlags.emoji(h.iso);
+        col.addView(ui.text((flag.isEmpty() ? "" : flag + " ") + h.title, 15, true, 1f));
+        if (!h.sub.isEmpty()) col.addView(ui.text(h.sub, 12, false, 0.75f));
+        row.addView(col, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
+        ((LinearLayout.LayoutParams) col.getLayoutParams()).weight = 1f;
+        row.setOnClickListener(v -> {
+            hideKeyboard();
+            hideSuggestions();
+            if (comp) {
+                setQuery("");
+                showCompetitionPage(h.id, h.title);
+            } else {
+                setQuery(h.id);
+                loadPerson(h.id);
+            }
+        });
+        return row;
+    }
+
+    private void addSection(LinearLayout into, String title, List<Hit> hits, int limit,
+                            boolean comp, boolean cards) {
+        if (hits.isEmpty()) return;
+        TextView label = ui.text(title, 12, true, 0.7f);
+        if (cards) {
+            into.addView(label, ui.matchWrap(4, 10, 4, 4));
+        } else {
+            label.setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(2));
+            into.addView(label);
+        }
+        for (int i = 0; i < hits.size() && i < limit; i++) {
+            View r = hitRow(hits.get(i), comp, cards);
+            if (cards) {
+                LinearLayout card = ui.card(false);
+                card.addView(r);
+                into.addView(card, ui.matchWrap(0, 3, 0, 3));
+            } else {
+                into.addView(r);
+            }
+        }
+    }
+
+    private void hideSuggestionsOnly() {
+        suggestBox.removeAllViews();
+        suggestBox.setVisibility(View.GONE);
+    }
+
+    /** Drop-down under the search box: matching competitors and competitions. */
     private void runSuggest(final String q) {
         if (q.length() < 2 || !isAdded()) return;
         final int tokenNow = ++suggestToken;
         suggestBox.removeAllViews();
         suggestBox.setVisibility(View.VISIBLE);
         suggestBox.addView(ui.text("Searching...", 14, false, 0.8f), ui.matchWrap(14, 12, 14, 12));
-        ui.recolor(suggestBox, ui.text, ui.itemText);
-        WcaHttp.get(WCA + "/search/users?persons_table=true&q=" + Uri.encode(q), new WcaHttp.Callback() {
-            @Override
-            public void onSuccess(String text) {
-                if (!isAdded() || tokenNow != suggestToken) return;
-                suggestBox.removeAllViews();
-                try {
-                    JSONArray arr = new JSONObject(text).optJSONArray("result");
-                    int count = 0;
-                    if (arr != null) {
-                        for (int i = 0; i < arr.length() && count < 8; i++) {
-                            JSONObject o = arr.getJSONObject(i);
-                            final String id = o.optString("wca_id");
-                            if (id.isEmpty() || "null".equals(id)) continue;
-                            suggestBox.addView(buildSuggestRow(id, o.optString("name"), o.optString("country_iso2")));
-                            count++;
-                        }
-                    }
-                    if (count == 0) {
-                        suggestBox.addView(ui.text("No competitors found.", 14, false, 0.8f),
-                                ui.matchWrap(14, 12, 14, 12));
-                    }
-                } catch (Exception e) {
-                    suggestBox.addView(ui.text("Unexpected response from the WCA website.", 14, false, 0.8f),
-                            ui.matchWrap(14, 12, 14, 12));
-                }
-                ui.recolor(suggestBox, ui.text, ui.itemText);
-            }
-
-            @Override
-            public void onError(String message) {
-                if (!isAdded() || tokenNow != suggestToken) return;
-                suggestBox.removeAllViews();
-                suggestBox.addView(ui.text(WcaHttp.describe(requireContext(), message) + ".", 14, false, 0.8f),
+        ui.recolor(suggestBox, ui.text, ui.safe);
+        fetchHits(q, (people, comps, failed) -> {
+            if (!isAdded() || tokenNow != suggestToken) return;
+            suggestBox.removeAllViews();
+            if (failed) {
+                suggestBox.addView(ui.text("Could not reach the WCA website.", 14, false, 0.8f),
                         ui.matchWrap(14, 12, 14, 12));
-                ui.recolor(suggestBox, ui.text, ui.itemText);
+            } else if (people.isEmpty() && comps.isEmpty()) {
+                suggestBox.addView(ui.text("No competitors or competitions found.", 14, false, 0.8f),
+                        ui.matchWrap(14, 12, 14, 12));
+            } else {
+                addSection(suggestBox, "COMPETITORS", people, 5, false, false);
+                addSection(suggestBox, "COMPETITIONS", comps, 5, true, false);
+                suggestBox.addView(new View(requireContext()), ui.matchWrap(0, 0, 0, 6));
             }
+            ui.recolor(suggestBox, ui.text, ui.safe);
         });
-    }
-
-    private View buildSuggestRow(final String id, final String name, String iso) {
-        LinearLayout row = new LinearLayout(requireContext());
-        row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10));
-        String flag = WcaFlags.emoji(iso);
-        row.addView(ui.text((flag.isEmpty() ? "" : flag + " ") + name, 15, true, 1f));
-        row.addView(ui.text(id, 12, false, 0.7f));
-        ui.recolor(row, ui.text, ui.itemText);
-        row.setOnClickListener(v -> {
-            hideKeyboard();
-            setQuery(id);
-            loadPerson(id);
-        });
-        return row;
     }
 
     private void search() {
@@ -323,58 +451,34 @@ public class WcaResultsFragment extends Fragment {
         hideSuggestions();
         String q = input.getText().toString().trim();
         if (q.isEmpty()) {
-            status.setText("Type a WCA ID or a name first.");
+            status.setText("Type a competitor, a WCA ID or a competition first.");
             return;
         }
         if (WCA_ID.matcher(q).matches()) {
             loadPerson(q.toUpperCase(Locale.US));
+        } else if (COMP_ID.matcher(q).matches()) {
+            showCompetitionPage(q, q);
         } else {
-            searchByName(q);
+            searchAll(q);
         }
     }
 
-    private void searchByName(String q) {
+    private void searchAll(String q) {
         status.setText("Searching...");
         body.removeAllViews();
         openId = null;
-        WcaHttp.get(WCA + "/search/users?persons_table=true&q=" + Uri.encode(q), new WcaHttp.Callback() {
-            @Override
-            public void onSuccess(String text) {
-                if (!isAdded()) return;
-                body.removeAllViews();
-                try {
-                    JSONObject root = new JSONObject(text);
-                    JSONArray arr = root.optJSONArray("result");
-                    int count = 0;
-                    if (arr != null) {
-                        for (int i = 0; i < arr.length() && count < 25; i++) {
-                            JSONObject o = arr.getJSONObject(i);
-                            final String id = o.optString("wca_id");
-                            if (id.isEmpty() || "null".equals(id)) continue;
-                            LinearLayout card = ui.card(false);
-                            String sFlag = WcaFlags.emoji(o.optString("country_iso2"));
-                            card.addView(ui.text((sFlag.isEmpty() ? "" : sFlag + " ") + o.optString("name"), 16, true, 1f));
-                            card.addView(ui.text(id, 13, false, 0.8f));
-                            card.setOnClickListener(v -> {
-                                setQuery(id);
-                                loadPerson(id);
-                            });
-                            body.addView(card, ui.matchWrap(0, 4, 0, 4));
-                            count++;
-                        }
-                    }
-                    status.setText(count == 0 ? "No competitors found." : "Tap a competitor to open their results.");
-                } catch (Exception e) {
-                    status.setText("Unexpected response from the WCA website.");
-                }
+        fetchHits(q, (people, comps, failed) -> {
+            if (!isAdded()) return;
+            body.removeAllViews();
+            if (failed) {
+                status.setText("Could not reach the WCA website. Check your connection and try again.");
+                return;
             }
-
-            @Override
-            public void onError(String message) {
-                if (!isAdded()) return;
-                status.setText(WcaHttp.describe(requireContext(), message) + ". "
-                        + "You can still open a competitor by WCA ID if you opened them before.");
-            }
+            addSection(body, "COMPETITORS", people, 25, false, true);
+            addSection(body, "COMPETITIONS", comps, 25, true, true);
+            status.setText(people.isEmpty() && comps.isEmpty()
+                    ? "No competitors or competitions found."
+                    : "Tap a competitor to open their results, or a competition to open its page.");
         });
     }
 
@@ -475,47 +579,64 @@ public class WcaResultsFragment extends Fragment {
             String country = person != null ? person.optString("country_iso2") : "";
             String flag = WcaFlags.emoji(country);
 
-            // Header card
+            // Header card: picture, name, country, WCA ID, and a row of numbers
             LinearLayout head = ui.card(false);
             final String pinId = id;
             final String pinName = name;
-            LinearLayout titleRow = new LinearLayout(requireContext());
-            titleRow.setOrientation(LinearLayout.HORIZONTAL);
-            titleRow.setGravity(Gravity.CENTER_VERTICAL);
-            TextView titleText = ui.text((flag.isEmpty() ? "" : flag + " ") + (name.isEmpty() ? id : name), 20, true, 1f);
-            titleRow.addView(titleText, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 4, 0));
-            ((LinearLayout.LayoutParams) titleText.getLayoutParams()).weight = 1f;
+            LinearLayout top = new LinearLayout(requireContext());
+            top.setOrientation(LinearLayout.HORIZONTAL);
+            top.setGravity(Gravity.CENTER_VERTICAL);
+            top.addView(ui.avatar(name.isEmpty() ? id : name, WcaUi.avatarUrl(person, true), 76),
+                    ui.lp(ui.dp(76), ui.dp(76), 0, 0, 14, 0));
+            LinearLayout info = new LinearLayout(requireContext());
+            info.setOrientation(LinearLayout.VERTICAL);
+            info.addView(ui.text(name.isEmpty() ? id : name, 20, true, 1f));
+            String countryName = WcaCompPage.countryName(WcaFlags.code(country));
+            if (!countryName.isEmpty()) {
+                info.addView(ui.text((flag.isEmpty() ? "" : flag + " ") + countryName, 14, false, 0.9f),
+                        ui.matchWrap(0, 2, 0, 0));
+            }
+            info.addView(ui.text(id, 13, false, 0.7f), ui.matchWrap(0, 2, 0, 0));
+            top.addView(info, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 4, 0));
+            ((LinearLayout.LayoutParams) info.getLayoutParams()).weight = 1f;
+
+            LinearLayout actions = new LinearLayout(requireContext());
+            actions.setOrientation(LinearLayout.VERTICAL);
             final android.widget.ImageView star = ui.iconButton(store.isPinned(pinId)
-                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.itemText);
+                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.safe);
             star.setContentDescription("Star this competitor");
             star.setOnClickListener(v -> {
                 boolean now = store.togglePinned(pinId, pinName);
                 if (store.isFavoritePerson(pinId) != now) store.toggleFavoritePerson(pinId);
                 star.setImageDrawable(ui.tinted(now ? R.drawable.ic_wca_star_filled
-                        : R.drawable.ic_wca_star_outline, 24, ui.itemText));
+                        : R.drawable.ic_wca_star_outline, 24, ui.safe));
                 renderPinned();
             });
-            titleRow.addView(star);
-            android.widget.ImageView refreshIcon = ui.iconButton(R.drawable.ic_wca_refresh, 24, ui.itemText);
+            actions.addView(star);
+            android.widget.ImageView refreshIcon = ui.iconButton(R.drawable.ic_wca_refresh, 24, ui.safe);
             refreshIcon.setContentDescription("Refresh");
             refreshIcon.setOnClickListener(v -> loadPerson(pinId));
-            titleRow.addView(refreshIcon);
-            head.addView(titleRow);
-            String sub = id;
+            actions.addView(refreshIcon);
+            top.addView(actions);
+            head.addView(top);
+
+            LinearLayout stats = new LinearLayout(requireContext());
+            stats.setOrientation(LinearLayout.HORIZONTAL);
             int comps = root.optInt("competition_count", -1);
-            if (comps >= 0) sub += "  \u00B7  " + comps + " competitions";
-            head.addView(ui.text(sub, 13, false, 0.85f));
+            if (comps >= 0) stats.addView(statBox(String.valueOf(comps), "competitions", ""), statLp());
             JSONObject medals = root.optJSONObject("medals");
             if (medals != null && medals.optInt("total", 0) > 0) {
-                head.addView(ui.text("Medals: " + medals.optInt("gold") + " gold, " + medals.optInt("silver")
-                        + " silver, " + medals.optInt("bronze") + " bronze", 13, false, 0.85f));
+                stats.addView(statBox(String.valueOf(medals.optInt("total")), "medals",
+                        medals.optInt("gold") + " / " + medals.optInt("silver") + " / " + medals.optInt("bronze")),
+                        statLp());
             }
             JSONObject recs = root.optJSONObject("records");
             if (recs != null && recs.optInt("total", 0) > 0) {
-                head.addView(ui.text("Records: " + recs.optInt("world") + " world, "
-                        + recs.optInt("continental") + " continental, " + recs.optInt("national")
-                        + " national", 13, false, 0.85f));
+                stats.addView(statBox(String.valueOf(recs.optInt("total")), "records",
+                        recs.optInt("world") + " WR \u00B7 " + recs.optInt("continental") + " CR \u00B7 "
+                                + recs.optInt("national") + " NR"), statLp());
             }
+            if (stats.getChildCount() > 0) head.addView(stats, ui.matchWrap(0, 14, 0, 0));
             body.addView(head, ui.matchWrap(0, 4, 0, 4));
 
             if (fromCache) {
@@ -530,6 +651,35 @@ public class WcaResultsFragment extends Fragment {
             e.printStackTrace();
             status.setText("Unexpected data from the WCA website for " + openId + ".");
         }
+    }
+
+    private LinearLayout.LayoutParams statLp() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.setMargins(ui.dp(3), 0, ui.dp(3), 0);
+        return lp;
+    }
+
+    private View statBox(String value, String label, String sub) {
+        LinearLayout box = new LinearLayout(requireContext());
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(ui.dp(6), ui.dp(10), ui.dp(6), ui.dp(10));
+        box.setBackground(ui.rounded(androidx.core.graphics.ColorUtils.blendARGB(ui.itemBg, ui.safe, 0.08f), ui.dp(10)));
+        TextView v = ui.text(value, 20, true, 1f);
+        v.setTextColor(ui.safe);
+        box.addView(v);
+        TextView l = ui.text(label, 11, false, 0.75f);
+        l.setTextColor(ui.safe);
+        l.setAlpha(0.75f);
+        box.addView(l);
+        if (!sub.isEmpty()) {
+            TextView sb = ui.text(sub, 10, false, 0.6f);
+            sb.setTextColor(ui.safe);
+            sb.setAlpha(0.6f);
+            sb.setGravity(Gravity.CENTER);
+            box.addView(sb);
+        }
+        return box;
     }
 
     private String rankText(JSONObject o) {

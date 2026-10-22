@@ -236,4 +236,41 @@ public final class WcaNames {
             }
         });
     }
+
+    // ---------------------------------------------------------------- profile pictures
+
+    private static final Map<String, String> AVATARS = new HashMap<>();
+
+    public interface AvatarListener {
+        void onAvatar(String url);
+    }
+
+    /** Profile picture URL for a WCA ID ("" when there is none). Calls back on the main thread. */
+    public static void fetchAvatar(final String wcaId, final AvatarListener l) {
+        synchronized (WcaNames.class) {
+            String known = AVATARS.get(wcaId);
+            if (known != null) {
+                l.onAvatar(known);
+                return;
+            }
+        }
+        WcaHttp.get("https://www.worldcubeassociation.org/api/v0/persons/" + wcaId, new WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String body) {
+                String url = "";
+                try {
+                    JSONObject o = new JSONObject(body);
+                    JSONObject p = o.optJSONObject("person") != null ? o.optJSONObject("person") : o;
+                    url = WcaUi.avatarUrl(p, false);
+                } catch (Exception ignored) {
+                }
+                synchronized (WcaNames.class) { AVATARS.put(wcaId, url); }
+                l.onAvatar(url);
+            }
+
+            @Override
+            public void onError(String message) {
+            }
+        });
+    }
 }

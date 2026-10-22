@@ -34,6 +34,8 @@ public final class WcaUi {
     /** Colors used by the Previous Solves boxes; the WCA boxes use the same ones. */
     public final int itemBg;
     public final int itemText;
+    /** Text/icon colour that is readable on item surfaces even if the theme's own pair is not. */
+    public final int safe;
 
     public WcaUi(Context c) {
         ctx = c;
@@ -45,6 +47,13 @@ public final class WcaUi {
         itemBg = ThemeUtils.fetchAttrColor(c, R.attr.colorItemListBackground);
         itemText = ThemeUtils.fetchAttrColor(c, R.attr.colorItemListText);
         highlight = ColorUtils.blendARGB(itemBg, itemText, 0.16f);
+        int opaqueBg = ColorUtils.setAlphaComponent(itemBg, 255);
+        int opaqueText = ColorUtils.setAlphaComponent(itemText, 255);
+        if (ColorUtils.calculateContrast(opaqueText, opaqueBg) >= 3.0) {
+            safe = itemText;
+        } else {
+            safe = ColorUtils.calculateLuminance(opaqueBg) > 0.5 ? 0xFF222222 : 0xFFF2F2F2;
+        }
     }
 
     public int dp(float v) {
@@ -70,7 +79,7 @@ public final class WcaUi {
 
     public TextView pill(String s, boolean selected) {
         TextView t = text(s, 14, true, 1f);
-        t.setTextColor(itemText);
+        t.setTextColor(safe);
         t.setGravity(Gravity.CENTER);
         t.setPadding(dp(14), dp(8), dp(14), dp(8));
         t.setMinHeight(dp(40));
@@ -96,7 +105,7 @@ public final class WcaUi {
         c.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
             @Override
             public void onChildViewAdded(View parent, View child) {
-                recolor(child, text, itemText);
+                recolor(child, text, safe);
             }
 
             @Override
@@ -152,6 +161,61 @@ public final class WcaUi {
         v.setMinimumWidth(dp(44));
         v.setMinimumHeight(dp(44));
         return v;
+    }
+
+    // ---------------------------------------------------------------- profile pictures
+
+    /** Picture URL from an object that has an "avatar" child (WCA person or search result). "" for none/default. */
+    public static String avatarUrl(org.json.JSONObject owner, boolean large) {
+        if (owner == null) return "";
+        org.json.JSONObject a = owner.optJSONObject("avatar");
+        if (a == null || a.optBoolean("is_default", false)) return "";
+        String u = large ? a.optString("url", "") : a.optString("thumb_url", a.optString("url", ""));
+        if (u.isEmpty() || "null".equals(u)) u = a.optString("url", "");
+        return "null".equals(u) ? "" : u;
+    }
+
+    public static String initials(String name) {
+        if (name == null) return "?";
+        String[] parts = name.trim().split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (String part : parts) {
+            if (part.isEmpty() || !Character.isLetter(part.charAt(0))) continue;
+            sb.append(Character.toUpperCase(part.charAt(0)));
+            if (sb.length() == 2) break;
+        }
+        return sb.length() == 0 ? "?" : sb.toString();
+    }
+
+    /** A round profile picture. Shows the person's initials until (and unless) the picture loads. */
+    public android.widget.FrameLayout avatar(String name, String url, int sizeDp) {
+        android.widget.FrameLayout f = new android.widget.FrameLayout(ctx);
+        TextView t = new TextView(ctx);
+        t.setText(initials(name));
+        t.setGravity(android.view.Gravity.CENTER);
+        t.setTextColor(safe);
+        t.setTextSize(sizeDp * 0.34f);
+        t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        android.graphics.drawable.GradientDrawable oval = new android.graphics.drawable.GradientDrawable();
+        oval.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        oval.setColor(highlight);
+        t.setBackground(oval);
+        f.addView(t, new android.widget.FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp)));
+        f.setTag(Integer.valueOf(sizeDp));
+        setAvatarUrl(f, url);
+        return f;
+    }
+
+    public void setAvatarUrl(android.widget.FrameLayout f, String url) {
+        if (url == null || url.isEmpty() || f.getChildCount() > 1) return;
+        int size = f.getTag() instanceof Integer ? (Integer) f.getTag() : 40;
+        ImageView iv = new ImageView(ctx);
+        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        f.addView(iv, new android.widget.FrameLayout.LayoutParams(dp(size), dp(size)));
+        try {
+            com.bumptech.glide.Glide.with(iv).load(url).circleCrop().into(iv);
+        } catch (Exception ignored) {
+        }
     }
 
     // ---------------------------------------------------------------- record badges
@@ -221,7 +285,7 @@ public final class WcaUi {
     }
 
     public void styleLabel(TextView t) {
-        t.setTextColor(itemText);
+        t.setTextColor(safe);
         t.setPadding(dp(12), dp(8), dp(12), dp(8));
         t.setBackground(rounded(itemBg, dp(8)));
     }
@@ -254,7 +318,7 @@ public final class WcaUi {
         panel.setBackground(g);
         panel.addView(content, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        recolor(panel, text, itemText);
+        recolor(panel, text, safe);
         d.setContentView(panel);
         if (d.getWindow() != null) {
             d.getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
@@ -281,7 +345,7 @@ public final class WcaUi {
         e.setSingleLine(true);
         e.setInputType(InputType.TYPE_CLASS_TEXT);
         e.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        e.setTextColor(itemText);
+        e.setTextColor(safe);
         e.setHintTextColor((itemText & 0x00FFFFFF) | 0x88000000);
         e.setTextSize(16);
         e.setPadding(dp(16), dp(10), dp(16), dp(10));
@@ -293,7 +357,7 @@ public final class WcaUi {
 
     /** Shows an X at the far right of a search box while it has text; tapping it clears the box. */
     public void attachClear(final EditText e) {
-        final Drawable x = tinted(R.drawable.ic_wca_close, 20, itemText);
+        final Drawable x = tinted(R.drawable.ic_wca_close, 20, safe);
         e.setCompoundDrawablePadding(dp(8));
         e.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}

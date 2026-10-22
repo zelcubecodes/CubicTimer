@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.view.Gravity;
@@ -50,7 +51,7 @@ public class WcaCompPage {
 
     private static final String WCA = "https://www.worldcubeassociation.org/api/v0";
     private static final int ROWS_PER_PAGE = 60;
-    private static final String[] TABS = {"Info", "Competitors", "Events", "Schedule", "Podiums"};
+    private static final String[] TABS = {"Info", "Competitors", "Events", "Schedule", "Results", "Podiums"};
 
     // Kept in memory only, so reopening a competition is quick but nothing is stored on disk.
     private static final Map<String, JSONObject> INFO = new HashMap<>();
@@ -107,6 +108,7 @@ public class WcaCompPage {
     private final PersonOpener opener;
     private final Runnable openLive;
     private final Map<String, Drawable> iconCache = new HashMap<>();
+    private final WcaStore store;
 
     private LinearLayout root;
     private LinearLayout actions;
@@ -126,6 +128,8 @@ public class WcaCompPage {
     private int schedDay = -1;
     private String schedRoom = null;
     private boolean schedGroups = false;
+    private int schedView = 0; // 0 calendar, 1 table
+    private final Set<String> schedOff = new HashSet<>();
 
     public WcaCompPage(Context ctx, String compId, String compName, PersonOpener opener, Runnable openLive) {
         this.ctx = ctx;
@@ -134,6 +138,7 @@ public class WcaCompPage {
         this.compName = compName;
         this.opener = opener;
         this.openLive = openLive;
+        this.store = new WcaStore(ctx);
     }
 
     // ---------------------------------------------------------------- layout
@@ -204,6 +209,7 @@ public class WcaCompPage {
             case 1: renderCompetitors(); break;
             case 2: renderEvents(); break;
             case 3: renderSchedule(); break;
+            case 4: renderResultsTab(); break;
             default: renderPodiums(); break;
         }
     }
@@ -212,7 +218,7 @@ public class WcaCompPage {
 
     private TextView tv(String s, float sp, boolean bold, float alpha) {
         TextView t = ui.text(s, sp, bold, alpha);
-        t.setTextColor(ui.itemText);
+        t.setTextColor(ui.safe);
         return t;
     }
 
@@ -235,8 +241,25 @@ public class WcaCompPage {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(ui.dp(12), ui.dp(header ? 10 : 8), ui.dp(12), ui.dp(header ? 10 : 8));
-        if (shaded) row.setBackgroundColor(ColorUtils.blendARGB(ui.itemBg, ui.itemText, 0.07f));
+        if (shaded) row.setBackgroundColor(ColorUtils.blendARGB(ui.itemBg, ui.safe, 0.07f));
         return row;
+    }
+
+    private boolean starred(Per p) {
+        return !p.wcaId.isEmpty() && store.isPinned(p.wcaId);
+    }
+
+    private void markStarred(LinearLayout row, Per p) {
+        if (starred(p)) row.setBackgroundColor(ColorUtils.blendARGB(ui.itemBg, ui.safe, 0.2f));
+    }
+
+    private static final int LINK = 0xFFE8531F;
+
+    private String peopleLine(List<Per> list) {
+        int first = 0;
+        for (Per p : list) if (p.wcaId.isEmpty()) first++;
+        int ret = list.size() - first;
+        return first + " first-timers + " + ret + " returners = " + list.size() + " people";
     }
 
     private TextView cell(String s, int widthDp, boolean bold, int gravity) {
@@ -259,13 +282,13 @@ public class WcaCompPage {
     private Drawable icon(String eventId) {
         Drawable d = iconCache.get(eventId);
         if (d == null && !iconCache.containsKey(eventId)) {
-            d = ui.eventIcon(eventId, 20, ui.itemText);
+            d = ui.eventIcon(eventId, 20, ui.safe);
             iconCache.put(eventId, d);
         }
         return d;
     }
 
-    private static String countryName(String iso) {
+    static String countryName(String iso) {
         if (iso == null || iso.isEmpty()) return "";
         String n = new Locale("", iso).getDisplayCountry(Locale.ENGLISH);
         return n == null || n.isEmpty() ? iso : n;
@@ -297,7 +320,7 @@ public class WcaCompPage {
         return sb.toString();
     }
 
-    private static String dates(String start, String end) {
+    static String dates(String start, String end) {
         try {
             SimpleDateFormat in = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
             Date a = in.parse(start);
@@ -628,7 +651,7 @@ public class WcaCompPage {
             hs.addView(wrap);
             for (int i = 0; i < evs.length(); i++) {
                 String id = evs.optString(i);
-                Drawable ic = ui.eventIcon(id, 28, ui.itemText);
+                Drawable ic = ui.eventIcon(id, 28, ui.safe);
                 if (ic == null) continue;
                 ImageView iv = new ImageView(ctx);
                 iv.setImageDrawable(ic);
@@ -755,7 +778,7 @@ public class WcaCompPage {
             final String id = e.id;
             boolean sel = id.equals(selEvent);
             View item;
-            Drawable ic = ui.eventIcon(id, 28, ui.itemText);
+            Drawable ic = ui.eventIcon(id, 28, ui.safe);
             if (ic != null) {
                 ImageView iv = new ImageView(ctx);
                 iv.setImageDrawable(ic);
@@ -785,12 +808,12 @@ public class WcaCompPage {
         else renderPsychSheet(w, selEvent);
     }
 
-    private void addShowMore(int total, int limit) {
+    private void addShowMore(int total, int limit, final Runnable redo) {
         if (limit >= total) return;
         TextView more = ui.pill("Show more (" + (total - limit) + " left)", false);
         more.setOnClickListener(v -> {
             shown += ROWS_PER_PAGE;
-            renderCompetitors();
+            redo.run();
         });
         content.addView(more, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 8));
@@ -803,15 +826,15 @@ public class WcaCompPage {
     private void renderCompetitorTable(Wcif w) {
         List<Per> list = new ArrayList<>(w.persons);
         Collections.sort(list, (a, b) -> a.name.compareToIgnoreCase(b.name));
-        content.addView(ui.text(list.size() + " competitors, in alphabetical order. Tap an event above for its psych sheet.",
-                13, false, 0.8f), ui.matchWrap(4, 0, 4, 6));
+        content.addView(ui.text(peopleLine(list) + ". Tap an event above for its psych sheet.",
+                13, false, 0.85f), ui.matchWrap(4, 0, 4, 6));
 
         final int slot = ui.dp(26), size = ui.dp(20);
         LinearLayout table = new LinearLayout(ctx);
         table.setOrientation(LinearLayout.VERTICAL);
         LinearLayout header = tableRow(false, true);
-        header.addView(cell("Competitor", 176, true, Gravity.START));
-        header.addView(cell("Representing", 128, true, Gravity.START));
+        header.addView(cell("Name \u25B2", 190, true, Gravity.START));
+        header.addView(cell("Representing", 150, true, Gravity.START));
         List<Drawable> all = new ArrayList<>();
         for (Ev e : w.events) all.add(icon(e.id));
         header.addView(new IconStrip(ctx, all, slot, size));
@@ -821,16 +844,19 @@ public class WcaCompPage {
         for (int i = 0; i < limit; i++) {
             final Per p = list.get(i);
             LinearLayout row = tableRow(i % 2 == 1, false);
-            row.addView(cell(withFlag(p.name, p.iso), 176, false, Gravity.START));
-            row.addView(cell(countryName(p.iso), 128, false, Gravity.START));
+            TextView nm = cell(p.name, 190, false, Gravity.START);
+            if (!p.wcaId.isEmpty()) nm.setTextColor(LINK);
+            row.addView(nm);
+            row.addView(cell(withFlag(countryName(p.iso), p.iso), 150, false, Gravity.START));
             List<Drawable> mine = new ArrayList<>();
             for (Ev e : w.events) mine.add(p.events.contains(e.id) ? icon(e.id) : null);
             row.addView(new IconStrip(ctx, mine, slot, size));
             if (!p.wcaId.isEmpty()) row.setOnClickListener(v -> openPerson(p));
+            markStarred(row, p);
             table.addView(row);
         }
         content.addView(tableCard(table), ui.matchWrap(0, 4, 0, 4));
-        addShowMore(list.size(), limit);
+        addShowMore(list.size(), limit, this::renderCompetitors);
     }
 
     private static long pbValue(Pb pb, boolean average) {
@@ -861,26 +887,27 @@ public class WcaCompPage {
             }
         });
 
-        TextView title = tv(WcaFormat.eventName(evId) + "  \u00B7  " + list.size()
-                + (list.size() == 1 ? " competitor" : " competitors"), 14, true, 1f);
+        TextView title = tv(WcaFormat.eventName(evId), 15, true, 1f);
         ui.setEventIcon(title, evId, 20, ui.text);
         title.setTextColor(ui.text);
         content.addView(title, ui.matchWrap(4, 2, 4, 2));
-        content.addView(ui.text("Ranked by " + (avg ? "average" : "single")
-                + ". Tap Single or Average to switch.", 13, false, 0.8f), ui.matchWrap(4, 0, 4, 6));
+        content.addView(ui.text(peopleLine(list) + ". Tap Single or Average to change the ranking.",
+                13, false, 0.85f), ui.matchWrap(4, 0, 4, 6));
         if (list.isEmpty()) {
             content.addView(ui.text("Nobody is registered for this event.", 14, false, 0.85f),
                     ui.matchWrap(4, 8, 4, 8));
             return;
         }
 
+        int shade = ColorUtils.blendARGB(ui.itemBg, ui.safe, 0.12f);
         LinearLayout table = new LinearLayout(ctx);
         table.setOrientation(LinearLayout.VERTICAL);
         LinearLayout header = tableRow(false, true);
         header.addView(cell("#", 36, true, Gravity.START));
-        header.addView(cell("Competitor", 190, true, Gravity.START));
-        header.addView(cell("WR", 52, true, Gravity.END));
-        TextView hs = cell(avg ? "Single" : "Single \u25BE", 86, true, Gravity.END);
+        header.addView(cell("Name", 200, true, Gravity.START));
+        header.addView(cell("WR", 56, true, Gravity.END));
+        TextView hs = cell(avg ? "Single" : "Single \u25B2", 92, true, Gravity.END);
+        if (!avg) hs.setBackgroundColor(shade);
         hs.setOnClickListener(v -> {
             basisAverage = false;
             basisTouched = true;
@@ -889,7 +916,8 @@ public class WcaCompPage {
         });
         header.addView(hs);
         if (!noAvg) {
-            TextView ha = cell(avg ? "Average \u25BE" : "Average", 86, true, Gravity.END);
+            TextView ha = cell(avg ? "Average \u25B2" : "Average", 92, true, Gravity.END);
+            if (avg) ha.setBackgroundColor(shade);
             ha.setOnClickListener(v -> {
                 basisAverage = true;
                 basisTouched = true;
@@ -897,7 +925,7 @@ public class WcaCompPage {
                 renderCompetitors();
             });
             header.addView(ha);
-            header.addView(cell("WR", 52, true, Gravity.END));
+            header.addView(cell("WR", 56, true, Gravity.END));
         }
         table.addView(header);
 
@@ -916,31 +944,34 @@ public class WcaCompPage {
             }
             LinearLayout row = tableRow(i % 2 == 1, false);
             row.addView(cell(rank, 36, false, Gravity.START));
-            row.addView(cell(withFlag(p.name, p.iso), 190, false, Gravity.START));
-            row.addView(cell(pb != null && pb.singleRank > 0 ? String.valueOf(pb.singleRank) : "", 52, false, Gravity.END));
+            TextView nm = cell(withFlag(p.name, p.iso), 200, false, Gravity.START);
+            if (!p.wcaId.isEmpty()) nm.setTextColor(LINK);
+            row.addView(nm);
+            row.addView(cell(pb != null && pb.singleRank > 0 ? String.valueOf(pb.singleRank) : "", 56, false, Gravity.END));
             row.addView(cell(pb != null && pb.single > 0 ? WcaFormat.formatResult(pb.single, evId, false) : "",
-                    86, !avg, Gravity.END));
+                    92, false, Gravity.END));
             if (!noAvg) {
                 row.addView(cell(pb != null && pb.average > 0 ? WcaFormat.formatResult(pb.average, evId, true) : "",
-                        86, avg, Gravity.END));
-                row.addView(cell(pb != null && pb.averageRank > 0 ? String.valueOf(pb.averageRank) : "", 52, false, Gravity.END));
+                        92, false, Gravity.END));
+                row.addView(cell(pb != null && pb.averageRank > 0 ? String.valueOf(pb.averageRank) : "", 56, false, Gravity.END));
             }
             if (!p.wcaId.isEmpty()) row.setOnClickListener(x -> openPerson(p));
+            markStarred(row, p);
             table.addView(row);
         }
         content.addView(tableCard(table), ui.matchWrap(0, 4, 0, 4));
-        addShowMore(list.size(), limit);
+        addShowMore(list.size(), limit, this::renderCompetitors);
     }
 
     // ---------------------------------------------------------------- Events tab
 
-    private static String formatName(String f) {
+    private static String formatShort(String f) {
         switch (f) {
-            case "a": return "Average of 5";
-            case "m": return "Mean of 3";
-            case "1": return "Best of 1";
-            case "2": return "Best of 2";
-            case "3": return "Best of 3";
+            case "a": return "Ao5";
+            case "m": return "Mo3";
+            case "1": return "Bo1";
+            case "2": return "Bo2";
+            case "3": return "Bo3";
             default: return f.isEmpty() ? "-" : f;
         }
     }
@@ -948,35 +979,30 @@ public class WcaCompPage {
     private static String roundTitle(int index, int total) {
         int n = index + 1;
         if (n == total) return "Final";
-        if (total >= 3 && n == total - 1) return "Semi Final";
-        String[] names = {"First Round", "Second Round", "Third Round", "Fourth Round"};
+        if (total >= 3 && n == total - 1) return "Semi final";
+        String[] names = {"First round", "Second round", "Third round", "Fourth round"};
         return n >= 1 && n <= names.length ? names[n - 1] : "Round " + n;
     }
 
-    /** 10:00 or 1:00:00 when there are no centiseconds, otherwise 1:23.45. */
-    private static String timeStr(long cs) {
-        if (cs <= 0) return "-";
-        if (cs % 100 == 0) {
-            long s = cs / 100;
-            long h = s / 3600, m = (s % 3600) / 60, sec = s % 60;
-            if (h > 0) return String.format(Locale.US, "%d:%02d:%02d", h, m, sec);
-            if (m > 0) return String.format(Locale.US, "%d:%02d", m, sec);
-            return sec + " s";
-        }
-        return WcaFormat.formatCentiseconds(cs);
+    private static String valueStr(String evId, long v) {
+        if ("333fm".equals(evId) || "333mbf".equals(evId)) return WcaFormat.formatResult(v, evId, false);
+        return WcaFormat.formatCentiseconds(v);
+    }
+
+    private static String formatText(Rnd r) {
+        String f = formatShort(r.format);
+        if (r.cutoffResult > 0 && r.cutoffAttempts > 0) return "Bo" + r.cutoffAttempts + " / " + f;
+        return f;
     }
 
     private static String limitText(String evId, Rnd r) {
         if (r.limit <= 0) return "-";
-        return timeStr(r.limit) + (r.cumulative ? " total" : "");
+        return valueStr(evId, r.limit) + (r.cumulative ? " total" : "");
     }
 
     private static String cutoffText(String evId, Rnd r) {
         if (r.cutoffResult <= 0 || r.cutoffAttempts <= 0) return "-";
-        String v;
-        if ("333fm".equals(evId) || "333mbf".equals(evId)) v = WcaFormat.formatResult(r.cutoffResult, evId, false);
-        else v = timeStr(r.cutoffResult);
-        return v + " in " + r.cutoffAttempts + (r.cutoffAttempts == 1 ? " attempt" : " attempts");
+        return valueStr(evId, r.cutoffResult);
     }
 
     private static String proceedText(String evId, Rnd r, boolean last) {
@@ -984,12 +1010,7 @@ public class WcaCompPage {
         switch (r.advType) {
             case "ranking": return "Top " + r.advLevel;
             case "percent": return "Top " + r.advLevel + "%";
-            case "attemptResult": {
-                String v;
-                if ("333fm".equals(evId) || "333mbf".equals(evId)) v = WcaFormat.formatResult(r.advLevel, evId, false);
-                else v = timeStr(r.advLevel);
-                return "Better than " + v;
-            }
+            case "attemptResult": return "Better than " + valueStr(evId, r.advLevel);
             default: return "-";
         }
     }
@@ -1015,36 +1036,34 @@ public class WcaCompPage {
         LinearLayout table = new LinearLayout(ctx);
         table.setOrientation(LinearLayout.VERTICAL);
         LinearLayout header = tableRow(false, true);
+        header.addView(cell("Event", 150, true, Gravity.START));
         header.addView(cell("Round", 112, true, Gravity.START));
-        header.addView(cell("Format", 112, true, Gravity.START));
-        header.addView(cell("Time limit", 100, true, Gravity.START));
-        header.addView(cell("Cutoff", 150, true, Gravity.START));
+        header.addView(cell("Format", 116, true, Gravity.START));
+        header.addView(cell("Time limit", 116, true, Gravity.START));
+        header.addView(cell("Cutoff", 100, true, Gravity.START));
         header.addView(cell("Proceed", 120, true, Gravity.START));
         table.addView(header);
 
+        int group = 0;
         for (Ev e : w.events) {
-            int count = 0;
-            for (Per p : w.persons) if (p.events.contains(e.id)) count++;
-            LinearLayout evRow = tableRow(true, false);
-            TextView name = tv(WcaFormat.eventName(e.id) + "  \u00B7  " + count
-                    + (count == 1 ? " competitor" : " competitors"), 14, true, 1f);
-            ui.setEventIcon(name, e.id, 20, ui.itemText);
-            evRow.addView(name);
-            table.addView(evRow);
             for (int i = 0; i < e.rounds.size(); i++) {
                 Rnd r = e.rounds.get(i);
-                LinearLayout row = tableRow(false, false);
+                LinearLayout row = tableRow(group % 2 == 1, false);
+                TextView name = cell(i == 0 ? WcaFormat.eventName(e.id) : "", 150, false, Gravity.START);
+                row.addView(name);
                 row.addView(cell(roundTitle(i, e.rounds.size()), 112, false, Gravity.START));
-                row.addView(cell(formatName(r.format), 112, false, Gravity.START));
-                row.addView(cell(limitText(e.id, r), 100, false, Gravity.START));
-                row.addView(cell(cutoffText(e.id, r), 150, false, Gravity.START));
+                row.addView(cell(formatText(r), 116, false, Gravity.START));
+                row.addView(cell(limitText(e.id, r), 116, false, Gravity.START));
+                row.addView(cell(cutoffText(e.id, r), 100, false, Gravity.START));
                 row.addView(cell(proceedText(e.id, r, i == e.rounds.size() - 1), 120, false, Gravity.START));
                 table.addView(row);
             }
+            group++;
         }
         content.addView(tableCard(table), ui.matchWrap(0, 4, 0, 4));
-        content.addView(ui.text("Time limits and cutoffs are per solve. \"Total\" means the limit is shared "
-                + "across the solves of the round.", 12, false, 0.7f), ui.matchWrap(4, 4, 4, 6));
+        content.addView(ui.text("Ao5 = average of 5, Mo3 = mean of 3, Bo = best of. A format like \"Bo2 / Ao5\" "
+                + "means a cutoff round: beat the cutoff within the first attempts to get the rest.",
+                12, false, 0.75f), ui.matchWrap(4, 4, 4, 6));
     }
 
     // ---------------------------------------------------------------- Schedule tab
@@ -1067,6 +1086,95 @@ public class WcaCompPage {
         return f.format(new Date(t));
     }
 
+    private static int minutesOfDay(long t, TimeZone tz) {
+        java.util.Calendar c = java.util.Calendar.getInstance(tz);
+        c.setTimeInMillis(t);
+        return c.get(java.util.Calendar.HOUR_OF_DAY) * 60 + c.get(java.util.Calendar.MINUTE);
+    }
+
+    private static String evOf(String code) {
+        return code.contains("-") ? code.substring(0, code.indexOf('-')) : code;
+    }
+
+    private static String hourLabel(int h) {
+        int hh = h % 24;
+        String suffix = hh < 12 ? "am" : "pm";
+        int n = hh % 12 == 0 ? 12 : hh % 12;
+        return n + suffix;
+    }
+
+    /** The time grid of the calendar view: hour lines, hour labels and blocks placed by time. */
+    private static class CalView extends ViewGroup {
+        private final int gutter, hourPx, startHour, endHour, minBlock;
+        private final Paint line = new Paint();
+        private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final List<int[]> geo = new ArrayList<>();
+
+        CalView(Context c, int gutterPx, int hourPx, int startHour, int endHour, int textColor, float textPx) {
+            super(c);
+            this.gutter = gutterPx;
+            this.hourPx = hourPx;
+            this.startHour = startHour;
+            this.endHour = endHour;
+            this.minBlock = hourPx / 3;
+            line.setColor((textColor & 0x00FFFFFF) | 0x30000000);
+            line.setStrokeWidth(Math.max(1f, textPx / 12f));
+            label.setColor(textColor);
+            label.setTextSize(textPx);
+            label.setTextAlign(Paint.Align.RIGHT);
+            setWillNotDraw(false);
+        }
+
+        void addBlock(View v, int topMin, int durMin, int col, int cols) {
+            geo.add(new int[]{topMin, durMin, col, cols});
+            addView(v);
+        }
+
+        private int blockTop(int[] g) {
+            return Math.round((g[0] - startHour * 60) * hourPx / 60f);
+        }
+
+        private int blockHeight(int[] g) {
+            return Math.max(minBlock, Math.round(g[1] * hourPx / 60f)) - 2;
+        }
+
+        @Override
+        protected void onMeasure(int wSpec, int hSpec) {
+            int w = MeasureSpec.getSize(wSpec);
+            int h = Math.max(1, (endHour - startHour)) * hourPx;
+            for (int i = 0; i < getChildCount(); i++) {
+                int[] g = geo.get(i);
+                int cw = (w - gutter) / Math.max(1, g[3]) - 2;
+                getChildAt(i).measure(MeasureSpec.makeMeasureSpec(Math.max(1, cw), MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(blockHeight(g), MeasureSpec.EXACTLY));
+            }
+            setMeasuredDimension(w, h);
+        }
+
+        @Override
+        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int w = r - l;
+            for (int i = 0; i < getChildCount(); i++) {
+                int[] g = geo.get(i);
+                int cw = (w - gutter) / Math.max(1, g[3]);
+                View v = getChildAt(i);
+                int left = gutter + g[2] * cw + 1;
+                int top = blockTop(g) + 1;
+                v.layout(left, top, left + v.getMeasuredWidth(), top + v.getMeasuredHeight());
+            }
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            for (int h = startHour; h <= endHour; h++) {
+                float y = (h - startHour) * hourPx;
+                canvas.drawLine(gutter, y, getWidth(), y, line);
+                if (h < endHour) canvas.drawText(hourLabel(h), gutter - label.getTextSize() * 0.5f,
+                        y + label.getTextSize() * 1.3f, label);
+            }
+        }
+    }
+
     private void renderSchedule() {
         final int my = token;
         final Wcif w = WCIF.get(compId);
@@ -1085,6 +1193,9 @@ public class WcaCompPage {
                     ui.matchWrap(4, 8, 4, 8));
             return;
         }
+        final Set<String> evIds = new HashSet<>();
+        for (Ev e : w.events) evIds.add(e.id);
+
         // Days, in the competition's own time zone.
         TreeSet<String> dayKeys = new TreeSet<>();
         Map<String, String> dayNames = new HashMap<>();
@@ -1100,14 +1211,32 @@ public class WcaCompPage {
             for (int i = 0; i < days.size(); i++) if (days.get(i).equals(today)) schedDay = i;
         }
 
+        // Calendar / Table
+        LinearLayout viewRow = new LinearLayout(ctx);
+        viewRow.setOrientation(LinearLayout.HORIZONTAL);
+        String[] viewNames = {"Calendar", "Table"};
+        for (int i = 0; i < 2; i++) {
+            final int idx = i;
+            TextView p = ui.pill(viewNames[i], schedView == i);
+            p.setGravity(Gravity.CENTER);
+            p.setOnClickListener(v -> {
+                schedView = idx;
+                renderSchedule();
+            });
+            LinearLayout.LayoutParams lp = ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, i == 0 ? 8 : 0, 0);
+            lp.weight = 1f;
+            viewRow.addView(p, lp);
+        }
+        content.addView(viewRow, ui.matchWrap(0, 0, 0, 8));
+
         if (days.size() > 1) {
             LinearLayout dayRow = new LinearLayout(ctx);
             dayRow.setOrientation(LinearLayout.HORIZONTAL);
             for (int i = 0; i < days.size(); i++) {
                 final int idx = i;
                 String lbl = dayNames.get(days.get(i));
-                TextView p = ui.pill(lbl == null ? days.get(i) : lbl.replaceFirst(",.*", "") + " " + lbl.replaceAll("^[^,]*, ", ""),
-                        i == schedDay);
+                TextView p = ui.pill(lbl == null ? days.get(i)
+                        : lbl.replaceFirst(",.*", "") + " " + lbl.replaceAll("^[^,]*, ", ""), i == schedDay);
                 p.setOnClickListener(v -> {
                     schedDay = idx;
                     renderSchedule();
@@ -1121,15 +1250,15 @@ public class WcaCompPage {
             content.addView(ds, ui.matchWrap(0, 0, 0, 6));
         }
 
-        LinearLayout opts = new LinearLayout(ctx);
-        opts.setOrientation(LinearLayout.HORIZONTAL);
         if (w.rooms.size() > 1) {
+            LinearLayout roomRow = new LinearLayout(ctx);
+            roomRow.setOrientation(LinearLayout.HORIZONTAL);
             TextView all = ui.pill("All rooms", schedRoom == null);
             all.setOnClickListener(v -> {
                 schedRoom = null;
                 renderSchedule();
             });
-            opts.addView(all, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+            roomRow.addView(all, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
             for (final String room : w.rooms) {
                 TextView p = ui.pill(room, room.equals(schedRoom));
@@ -1137,76 +1266,380 @@ public class WcaCompPage {
                     schedRoom = room;
                     renderSchedule();
                 });
-                opts.addView(p, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                roomRow.addView(p, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
                         ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
             }
+            HorizontalScrollView rs = new HorizontalScrollView(ctx);
+            rs.setHorizontalScrollBarEnabled(false);
+            rs.addView(roomRow);
+            content.addView(rs, ui.matchWrap(0, 0, 0, 6));
         }
-        TextView groups = ui.pill(schedGroups ? "Hide groups" : "Show groups", schedGroups);
-        groups.setOnClickListener(v -> {
-            schedGroups = !schedGroups;
-            renderSchedule();
-        });
-        opts.addView(groups);
-        HorizontalScrollView os = new HorizontalScrollView(ctx);
-        os.setHorizontalScrollBarEnabled(false);
-        os.addView(opts);
-        content.addView(os, ui.matchWrap(0, 0, 0, 8));
+
+        // Events filter: All / Clear and one toggle per event (other activities always show).
+        if (!w.events.isEmpty()) {
+            LinearLayout filterRow = new LinearLayout(ctx);
+            filterRow.setOrientation(LinearLayout.HORIZONTAL);
+            filterRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView allEv = ui.pill("All", schedOff.isEmpty());
+            allEv.setOnClickListener(v -> {
+                schedOff.clear();
+                renderSchedule();
+            });
+            filterRow.addView(allEv, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 6, 0));
+            TextView none = ui.pill("Clear", schedOff.size() >= evIds.size());
+            none.setOnClickListener(v -> {
+                schedOff.addAll(evIds);
+                renderSchedule();
+            });
+            filterRow.addView(none, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 10, 0));
+            for (Ev e : w.events) {
+                final String id = e.id;
+                boolean on = !schedOff.contains(id);
+                Drawable ic = ui.eventIcon(id, 24, ui.safe);
+                if (ic == null) continue;
+                ImageView iv = new ImageView(ctx);
+                iv.setImageDrawable(ic);
+                iv.setScaleType(ImageView.ScaleType.CENTER);
+                iv.setContentDescription(WcaFormat.eventName(id));
+                if (on) iv.setBackground(ui.rounded(ui.highlight, ui.dp(8)));
+                iv.setAlpha(on ? 1f : 0.4f);
+                iv.setOnClickListener(v -> {
+                    if (schedOff.contains(id)) schedOff.remove(id);
+                    else schedOff.add(id);
+                    renderSchedule();
+                });
+                filterRow.addView(iv, ui.lp(ui.dp(40), ui.dp(40), 0, 0, 4, 0));
+            }
+            HorizontalScrollView fs = new HorizontalScrollView(ctx);
+            fs.setHorizontalScrollBarEnabled(false);
+            fs.addView(filterRow);
+            LinearLayout fcard = ui.card(false);
+            fcard.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6));
+            fcard.addView(fs);
+            content.addView(fcard, ui.matchWrap(0, 0, 0, 8));
+        }
 
         String dayWanted = days.get(schedDay);
+        List<Act> shownActs = new ArrayList<>();
         TimeZone tzForDay = null;
-        LinearLayout card = ui.card(false);
-        card.setPadding(0, ui.dp(4), 0, ui.dp(4));
-        int count = 0;
         for (Act a : w.acts) {
             if (!dayWanted.equals(dayKey(a.start, a.tz))) continue;
             if (schedRoom != null && !schedRoom.equals(a.room)) continue;
+            String ev = evOf(a.code);
+            if (evIds.contains(ev) && schedOff.contains(ev)) continue;
             if (tzForDay == null) tzForDay = a.tz;
-            addActivityRow(card, a, w.rooms.size() > 1, w.venues > 1, false, count % 2 == 1);
-            count++;
-            if (schedGroups) {
-                for (Act child : a.children) {
-                    addActivityRow(card, child, w.rooms.size() > 1, false, true, count % 2 == 1);
-                    count++;
-                }
-            }
+            shownActs.add(a);
         }
-        if (count == 0) {
-            content.addView(ui.text("Nothing scheduled in this room on this day.", 14, false, 0.85f),
+        if (shownActs.isEmpty()) {
+            content.addView(ui.text("Nothing matches these filters on this day.", 14, false, 0.85f),
                     ui.matchWrap(4, 8, 4, 8));
             return;
         }
-        content.addView(ui.text(dayNames.get(dayWanted) + (tzForDay == null ? ""
-                : "  \u00B7  times in " + tzForDay.getID().replace('_', ' ')), 13, true, 0.85f), ui.matchWrap(4, 0, 4, 6));
+        content.addView(ui.text(dayNames.get(dayWanted) + "  \u00B7  times in "
+                + tzForDay.getID().replace('_', ' '), 13, true, 0.85f), ui.matchWrap(4, 0, 4, 6));
+        if (schedView == 0) buildCalendar(shownActs, w.rooms.size() > 1);
+        else buildTable(shownActs, w.rooms.size() > 1, w.venues > 1);
+    }
+
+    private int blockColor(Act a) {
+        if (a.code.startsWith("other")) return 0xFF666666;
+        try {
+            if (a.roomColor != null && a.roomColor.startsWith("#")) return Color.parseColor(a.roomColor);
+        } catch (Exception ignored) {
+        }
+        return 0xFF2F4A96;
+    }
+
+    private void buildCalendar(List<Act> acts, boolean showRoom) {
+        List<Act> list = new ArrayList<>(acts);
+        Collections.sort(list, (x, y) -> x.start != y.start ? Long.compare(x.start, y.start) : Long.compare(y.end, x.end));
+        int minMin = Integer.MAX_VALUE, maxMin = 0;
+        for (Act a : list) {
+            int s0 = minutesOfDay(a.start, a.tz);
+            int dur = (int) Math.max(15, (a.end - a.start) / 60000L);
+            minMin = Math.min(minMin, s0);
+            maxMin = Math.max(maxMin, s0 + dur);
+        }
+        int startHour = minMin / 60;
+        int endHour = Math.min(48, (maxMin + 59) / 60);
+        if (endHour <= startHour) endHour = startHour + 1;
+        CalView cal = new CalView(ctx, ui.dp(46), ui.dp(64), startHour, endHour, ui.safe, ui.dp(11));
+
+        int i = 0;
+        while (i < list.size()) {
+            // A cluster is a run of activities that overlap in time; they share the width side by side.
+            List<Act> cluster = new ArrayList<>();
+            cluster.add(list.get(i));
+            long clusterEnd = list.get(i).end;
+            int j = i + 1;
+            while (j < list.size() && list.get(j).start < clusterEnd) {
+                cluster.add(list.get(j));
+                clusterEnd = Math.max(clusterEnd, list.get(j).end);
+                j++;
+            }
+            List<Long> colEnds = new ArrayList<>();
+            int[] colOf = new int[cluster.size()];
+            for (int k = 0; k < cluster.size(); k++) {
+                Act a = cluster.get(k);
+                int c = -1;
+                for (int m = 0; m < colEnds.size(); m++) {
+                    if (colEnds.get(m) <= a.start) {
+                        c = m;
+                        break;
+                    }
+                }
+                if (c < 0) {
+                    colEnds.add(a.end);
+                    c = colEnds.size() - 1;
+                } else {
+                    colEnds.set(c, a.end);
+                }
+                colOf[k] = c;
+            }
+            for (int k = 0; k < cluster.size(); k++) {
+                Act a = cluster.get(k);
+                int dur = (int) Math.max(15, (a.end - a.start) / 60000L);
+                TextView t = new TextView(ctx);
+                t.setTextColor(Color.WHITE);
+                t.setTextSize(12);
+                t.setPadding(ui.dp(6), ui.dp(3), ui.dp(4), ui.dp(2));
+                t.setBackground(ui.rounded(blockColor(a), ui.dp(4)));
+                t.setOverScrollMode(View.OVER_SCROLL_NEVER);
+                String when = clock(a.start, a.tz).replace(" AM", "").replace(" PM", "") + " - "
+                        + clock(a.end, a.tz).replace(" AM", "").replace(" PM", "");
+                String room = showRoom && !a.room.isEmpty() ? "  \u00B7  " + a.room : "";
+                if (dur <= 30) t.setText(when + "  " + a.name);
+                else t.setText(when + room + "\n" + a.name);
+                cal.addBlock(t, minutesOfDay(a.start, a.tz), dur, colOf[k], colEnds.size());
+            }
+            i = j;
+        }
+        LinearLayout card = ui.card(false);
+        card.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
+        card.addView(cal, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         content.addView(card, ui.matchWrap(0, 0, 0, 4));
     }
 
-    private void addActivityRow(LinearLayout card, Act a, boolean showRoom, boolean showVenue,
-                                boolean child, boolean shaded) {
+    private void buildTable(List<Act> acts, boolean showRoom, boolean showVenue) {
+        LinearLayout card = ui.card(false);
+        card.setPadding(0, ui.dp(4), 0, ui.dp(4));
+        for (int i = 0; i < acts.size(); i++) addActivityRow(card, acts.get(i), showRoom, showVenue, i % 2 == 1);
+        content.addView(card, ui.matchWrap(0, 0, 0, 4));
+    }
+
+    private void addActivityRow(LinearLayout card, Act a, boolean showRoom, boolean showVenue, boolean shaded) {
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.VERTICAL);
-        row.setPadding(ui.dp(child ? 30 : 14), ui.dp(8), ui.dp(14), ui.dp(8));
-        if (shaded) row.setBackgroundColor(ColorUtils.blendARGB(ui.itemBg, ui.itemText, 0.07f));
+        row.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8));
+        if (shaded) row.setBackgroundColor(ColorUtils.blendARGB(ui.itemBg, ui.safe, 0.07f));
         row.addView(tv(clock(a.start, a.tz) + " - " + clock(a.end, a.tz), 12, false, 0.7f));
-        String evCode = a.code.contains("-") ? a.code.substring(0, a.code.indexOf('-')) : a.code;
-        TextView name = tv(a.name, child ? 13 : 15, !child, 1f);
-        ui.setEventIcon(name, evCode, child ? 16 : 20, ui.itemText);
+        TextView name = tv(a.name, 15, true, 1f);
+        ui.setEventIcon(name, evOf(a.code), 20, ui.safe);
         row.addView(name);
         if (showRoom && !a.room.isEmpty()) {
             LinearLayout line = new LinearLayout(ctx);
             line.setOrientation(LinearLayout.HORIZONTAL);
             line.setGravity(Gravity.CENTER_VERTICAL);
-            int dot = 0xFF9E9E9E;
-            try {
-                if (a.roomColor != null && a.roomColor.startsWith("#")) dot = Color.parseColor(a.roomColor);
-            } catch (Exception ignored) {
-            }
             View d = new View(ctx);
-            d.setBackground(ui.rounded(dot, ui.dp(5)));
+            d.setBackground(ui.rounded(blockColor(a), ui.dp(5)));
             line.addView(d, ui.lp(ui.dp(10), ui.dp(10), 0, 0, 6, 0));
             line.addView(tv(a.room + (showVenue && !a.venue.isEmpty() ? "  \u00B7  " + a.venue : ""), 12, false, 0.75f));
             row.addView(line, ui.matchWrap(0, 2, 0, 0));
         }
         card.addView(row, ui.matchWrap(0, 0, 0, 0));
+    }
+
+    // ---------------------------------------------------------------- Results tab
+
+    private String resEvent = null;
+    private String resRound = null;
+
+    private static int roundRank(String t) {
+        switch (t) {
+            case "0": case "h": return 0;
+            case "1": case "d": return 1;
+            case "2": case "e": return 2;
+            case "3": case "g": return 3;
+            case "b": return 4;
+            default: return 5;
+        }
+    }
+
+    private static String roundName(String t) {
+        switch (t) {
+            case "0": case "h": return "Qualification";
+            case "1": case "d": return "First round";
+            case "2": case "e": return "Second round";
+            case "3": case "g": return "Semi final";
+            case "b": return "B final";
+            default: return "Final";
+        }
+    }
+
+    private void renderResultsTab() {
+        final int my = token;
+        JSONArray all = RESULTS.get(compId);
+        if (all == null) {
+            loadingText("Loading results...");
+            ensureResults(err -> {
+                if (my != token) return;
+                if (err != null) errorBox(err);
+                else renderResultsTab();
+            });
+            return;
+        }
+        content.removeAllViews();
+        // event -> round type -> rows
+        Map<String, Map<String, List<JSONObject>>> byEvent = new HashMap<>();
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject r = all.optJSONObject(i);
+            if (r == null) continue;
+            String ev = r.optString("event_id");
+            String rt = r.optString("round_type_id");
+            Map<String, List<JSONObject>> rounds = byEvent.get(ev);
+            if (rounds == null) {
+                rounds = new HashMap<>();
+                byEvent.put(ev, rounds);
+            }
+            List<JSONObject> l = rounds.get(rt);
+            if (l == null) {
+                l = new ArrayList<>();
+                rounds.put(rt, l);
+            }
+            l.add(r);
+        }
+        if (byEvent.isEmpty()) {
+            content.addView(ui.text("No results yet. The WCA posts the results after the competition ends"
+                    + (openLive != null ? "; until then see the live results." : "."), 14, false, 0.85f),
+                    ui.matchWrap(4, 8, 4, 8));
+            return;
+        }
+        final List<String> evs = new ArrayList<>(byEvent.keySet());
+        Collections.sort(evs, (a, b) -> WcaFormat.eventOrder(a) - WcaFormat.eventOrder(b));
+        if (resEvent == null || !byEvent.containsKey(resEvent)) {
+            resEvent = evs.get(0);
+            resRound = null;
+        }
+        final Map<String, List<JSONObject>> rounds = byEvent.get(resEvent);
+        final List<String> rts = new ArrayList<>(rounds.keySet());
+        Collections.sort(rts, (a, b) -> roundRank(a) - roundRank(b));
+        if (resRound == null || !rounds.containsKey(resRound)) resRound = rts.get(rts.size() - 1);
+
+        // Event picker
+        LinearLayout pickCard = ui.card(false);
+        pickCard.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(6));
+        HorizontalScrollView pickScroll = new HorizontalScrollView(ctx);
+        pickScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout pick = new LinearLayout(ctx);
+        pick.setOrientation(LinearLayout.HORIZONTAL);
+        pickScroll.addView(pick);
+        for (final String id : evs) {
+            boolean sel = id.equals(resEvent);
+            View item;
+            Drawable ic = ui.eventIcon(id, 28, ui.safe);
+            if (ic != null) {
+                ImageView iv = new ImageView(ctx);
+                iv.setImageDrawable(ic);
+                iv.setScaleType(ImageView.ScaleType.CENTER);
+                iv.setContentDescription(WcaFormat.eventName(id));
+                item = iv;
+            } else {
+                item = ui.pill(WcaFormat.eventName(id), sel);
+            }
+            if (sel) item.setBackground(ui.rounded(ui.highlight, ui.dp(8)));
+            item.setAlpha(sel ? 1f : 0.45f);
+            item.setOnClickListener(v -> {
+                resEvent = id;
+                resRound = null;
+                shown = ROWS_PER_PAGE;
+                renderResultsTab();
+            });
+            pick.addView(item, ui.lp(ui.dp(44), ui.dp(44), 0, 0, 4, 0));
+        }
+        pickCard.addView(pickScroll);
+        content.addView(pickCard, ui.matchWrap(0, 4, 0, 6));
+
+        TextView title = tv(WcaFormat.eventName(resEvent), 15, true, 1f);
+        ui.setEventIcon(title, resEvent, 20, ui.text);
+        title.setTextColor(ui.text);
+        content.addView(title, ui.matchWrap(4, 2, 4, 4));
+
+        if (rts.size() > 1) {
+            LinearLayout roundRow = new LinearLayout(ctx);
+            roundRow.setOrientation(LinearLayout.HORIZONTAL);
+            for (final String rt : rts) {
+                TextView p = ui.pill(roundName(rt), rt.equals(resRound));
+                p.setOnClickListener(v -> {
+                    resRound = rt;
+                    shown = ROWS_PER_PAGE;
+                    renderResultsTab();
+                });
+                roundRow.addView(p, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+            }
+            HorizontalScrollView rs = new HorizontalScrollView(ctx);
+            rs.setHorizontalScrollBarEnabled(false);
+            rs.addView(roundRow);
+            content.addView(rs, ui.matchWrap(0, 0, 0, 6));
+        }
+
+        final List<JSONObject> rows = new ArrayList<>(rounds.get(resRound));
+        Collections.sort(rows, (a, b) -> {
+            int pa = a.optInt("pos", 9999), pb = b.optInt("pos", 9999);
+            return pa - pb;
+        });
+        int maxAttempts = 0;
+        for (JSONObject r : rows) {
+            JSONArray at = r.optJSONArray("attempts");
+            if (at != null) maxAttempts = Math.max(maxAttempts, at.length());
+        }
+        final boolean noAvg = noAverage(resEvent);
+
+        LinearLayout table = new LinearLayout(ctx);
+        table.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout header = tableRow(false, true);
+        header.addView(cell("#", 36, true, Gravity.START));
+        header.addView(cell("Name", 200, true, Gravity.START));
+        header.addView(cell("Best", 92, true, Gravity.END));
+        if (!noAvg) header.addView(cell("Average", 92, true, Gravity.END));
+        header.addView(cell("Representing", 150, true, Gravity.START));
+        for (int k = 0; k < maxAttempts; k++) header.addView(cell("Solve " + (k + 1), 84, true, Gravity.END));
+        table.addView(header);
+
+        int limit = Math.min(shown, rows.size());
+        for (int i = 0; i < limit; i++) {
+            JSONObject r = rows.get(i);
+            final String wcaId = r.isNull("wca_id") ? "" : r.optString("wca_id");
+            LinearLayout row = tableRow(i % 2 == 1, false);
+            row.addView(cell(r.optInt("pos") > 0 ? String.valueOf(r.optInt("pos")) : "-", 36, false, Gravity.START));
+            TextView nm = cell(r.optString("name"), 200, false, Gravity.START);
+            if (!wcaId.isEmpty()) nm.setTextColor(LINK);
+            row.addView(nm);
+            String bt = WcaFormat.formatResult(r.optLong("best"), resEvent, false);
+            String bTag = regionTag(r, "regional_single_record");
+            row.addView(cell(bt + (bTag.isEmpty() ? "" : " " + bTag), 92, true, Gravity.END));
+            if (!noAvg) {
+                String av = WcaFormat.formatResult(r.optLong("average"), resEvent, true);
+                String aTag = regionTag(r, "regional_average_record");
+                row.addView(cell(av + (aTag.isEmpty() || av.isEmpty() ? "" : " " + aTag), 92, true, Gravity.END));
+            }
+            String iso = WcaFlags.code(r.optString("country_iso2"));
+            row.addView(cell(withFlag(countryName(iso), iso), 150, false, Gravity.START));
+            JSONArray at = r.optJSONArray("attempts");
+            for (int k = 0; k < maxAttempts; k++) {
+                long v = at != null && k < at.length() ? at.optLong(k) : 0;
+                row.addView(cell(WcaFormat.formatResult(v, resEvent, false), 84, false, Gravity.END));
+            }
+            if (!wcaId.isEmpty()) row.setOnClickListener(v -> {
+                if (opener != null) opener.open(wcaId);
+            });
+            table.addView(row);
+        }
+        content.addView(tableCard(table), ui.matchWrap(0, 4, 0, 4));
+        addShowMore(rows.size(), limit, this::renderResultsTab);
     }
 
     // ---------------------------------------------------------------- Podiums tab
@@ -1264,7 +1697,7 @@ public class WcaCompPage {
             Collections.sort(rows, (a, b) -> a.optInt("pos") - b.optInt("pos"));
             LinearLayout card = ui.card(false);
             TextView title = tv(WcaFormat.eventName(ev), 16, true, 1f);
-            ui.setEventIcon(title, ev, 22, ui.itemText);
+            ui.setEventIcon(title, ev, 22, ui.safe);
             card.addView(title, ui.matchWrap(0, 0, 0, 6));
             for (JSONObject r : rows) {
                 card.addView(podiumRow(r, ev), ui.matchWrap(0, 4, 0, 4));
