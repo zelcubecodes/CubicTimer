@@ -98,6 +98,7 @@ public class RecordsActivity extends AppCompatActivity {
                 : ColorUtils.blendARGB(mBgColor, Color.WHITE, 0.10f);
         mCardColor = ColorUtils.blendARGB(mPanelColor, mTextColor, 0.07f);
 
+        com.hatopigeon.cubictimer.wca.WcaNames.init(this);
         boolean loaded = loadData();
 
         if (savedInstanceState != null) {
@@ -636,6 +637,11 @@ public class RecordsActivity extends AppCompatActivity {
             h.date.setText(r.optString("d"));
             String country = r.optString("country");
             h.who.setText(r.optString("name") + (country.isEmpty() ? "" : " \u00B7 " + country));
+            final String pid = r.optString("pid");
+            h.who.setOnClickListener(pid.isEmpty() ? null : (View.OnClickListener) v -> {
+                new com.hatopigeon.cubictimer.wca.WcaStore(RecordsActivity.this).setPendingPerson(pid);
+                finish();
+            });
             h.comp.setText(r.optString("comp") + " \u00B7 " + r.optString("round"));
             StringBuilder tags = new StringBuilder();
             if (r.optBoolean("current")) tags.append(getString(R.string.records_current));

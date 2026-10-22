@@ -28,6 +28,7 @@ import com.hatopigeon.cubictimer.wca.WcaFlags;
 import com.hatopigeon.cubictimer.wca.WcaFormat;
 import com.hatopigeon.cubictimer.wca.WcaHttp;
 import com.hatopigeon.cubictimer.wca.WcaNames;
+import com.hatopigeon.cubictimer.wca.WcaStore;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -66,6 +67,8 @@ public class RankingsActivity extends AppCompatActivity {
     private TextView regionButton, singleTab, averageTab, status;
     private LinearLayout list;
     private final Map<String, TextView[]> rowViews = new HashMap<>();
+    private final Map<String, LinearLayout> rowOf = new HashMap<>();
+    private int hiddenCount = 0;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -77,6 +80,7 @@ public class RankingsActivity extends AppCompatActivity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setTheme(ThemeUtils.getPreferredTheme());
         super.onCreate(savedInstanceState);
+        WcaNames.init(this);
         text = ThemeUtils.fetchAttrColor(this, R.attr.colorTimerText);
         bg = ThemeUtils.fetchAttrColor(this, R.attr.colorPrimary);
         itemBg = ThemeUtils.fetchAttrColor(this, R.attr.colorItemListBackground);
@@ -196,7 +200,7 @@ public class RankingsActivity extends AppCompatActivity {
         ll.topMargin = dp(8);
         page.addView(list, ll);
 
-        TextView note = tv("Data: unofficial WCA public API, updated once a day. Names come from the WCA website.",
+        TextView note = tv("Data: unofficial WCA public API, updated once a day. Names come from the WCA website. Tap a name to open their WCA profile.",
                 12, false, text);
         note.setAlpha(0.7f);
         note.setPadding(dp(4), dp(12), dp(4), 0);
@@ -421,6 +425,17 @@ public class RankingsActivity extends AppCompatActivity {
         renderList();
     }
 
+    /** True when this is a country ranking and the person's country is known and different. */
+    private boolean isForeign(String iso) {
+        return region.length() == 2 && iso != null && iso.length() == 2 && !iso.equalsIgnoreCase(region);
+    }
+
+    private void openProfile(String wcaId) {
+        if (wcaId == null || wcaId.isEmpty()) return;
+        new WcaStore(this).setPendingPerson(wcaId);
+        finish();
+    }
+
     private void showStatus(String s) {
         status.setText(s);
         status.setVisibility(s.isEmpty() ? View.GONE : View.VISIBLE);
@@ -429,12 +444,21 @@ public class RankingsActivity extends AppCompatActivity {
     private void renderList() {
         list.removeAllViews();
         rowViews.clear();
+        rowOf.clear();
+        hiddenCount = 0;
         int limit = Math.min(shown, items.length());
         final List<String> visibleIds = new ArrayList<>();
         for (int i = 0; i < limit; i++) {
             JSONObject it = items.optJSONObject(i);
             if (it == null) continue;
             final String id = it.optString("personId");
+            // In a country ranking, leave out anyone who is known to be from another country.
+            String[] known = WcaNames.cached(id);
+            if (isForeign(known != null ? known[1] : "")
+                    || isForeign(WcaFlags.code(it.optString("country", it.optString("countryId", ""))))) {
+                hiddenCount++;
+                continue;
+            }
             JSONObject rk = it.optJSONObject("rank");
             int place = i + 1;
             if (rk != null) {
@@ -466,7 +490,9 @@ public class RankingsActivity extends AppCompatActivity {
                     ViewGroup.LayoutParams.WRAP_CONTENT);
             rp.setMargins(0, dp(3), 0, dp(3));
             list.addView(row, rp);
+            row.setOnClickListener(v -> openProfile(id));
             rowViews.put(id, new TextView[]{name, sub});
+            rowOf.put(id, row);
             visibleIds.add(id);
         }
         final int token = requestToken;
@@ -474,6 +500,15 @@ public class RankingsActivity extends AppCompatActivity {
             if (token != requestToken) return;
             TextView[] tvs = rowViews.get(wcaId);
             if (tvs == null) return;
+            if (isForeign(iso)) {
+                LinearLayout gone = rowOf.remove(wcaId);
+                if (gone != null) {
+                    list.removeView(gone);
+                    hiddenCount++;
+                }
+                rowViews.remove(wcaId);
+                return;
+            }
             String f = WcaFlags.emoji(iso);
             tvs[0].setText((f.isEmpty() ? "" : f + " ") + n);
         }));
