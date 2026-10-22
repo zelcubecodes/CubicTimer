@@ -106,6 +106,13 @@ public class WcaLiveFragment extends Fragment {
     private LinearLayout resultsContainer;
     private TextView sortPill;
     private ScrollView resultsScroll;
+    private HorizontalScrollView evScrollView, rdScrollView;
+    private LinearLayout optsRow;
+    private ScrollView compScroll;
+    private TextView modeResults, modeComp;
+    private WcaCompPage compPage = null;
+    private String compPageFor = "";
+    private boolean compMode = false;
 
     private Comp currentComp = null;
     private boolean inDetail = false;
@@ -151,6 +158,7 @@ public class WcaLiveFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         ui = new WcaUi(requireContext());
         store = new WcaStore(requireContext());
+        WcaNames.init(requireContext());
         autoRefresh = store.getAutoRefresh();
         showAttempts = store.getShowAttempts();
 
@@ -853,9 +861,23 @@ public class WcaLiveFragment extends Fragment {
         header.addView(detailTitle, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
         ((LinearLayout.LayoutParams) detailTitle.getLayoutParams()).weight = 1f;
         TextView refresh = ui.pill("Refresh", false);
-        refresh.setOnClickListener(v -> fetchResults());
+        refresh.setOnClickListener(v -> {
+            if (compMode && compPage != null) compPage.reload();
+            else fetchResults();
+        });
         header.addView(refresh);
         page.addView(header, ui.matchWrap(0, 0, 0, 6));
+
+        LinearLayout modeRow = new LinearLayout(requireContext());
+        modeRow.setOrientation(LinearLayout.HORIZONTAL);
+        modeResults = ui.pill("Live results", true);
+        modeResults.setOnClickListener(v -> setMode(false));
+        modeComp = ui.pill("Competition", false);
+        modeComp.setOnClickListener(v -> setMode(true));
+        modeRow.addView(modeResults, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        modeRow.addView(modeComp);
+        page.addView(modeRow, ui.matchWrap(0, 0, 0, 6));
 
         detailStatus = ui.status(13);
         page.addView(detailStatus, ui.matchWrap(4, 0, 4, 6));
@@ -865,6 +887,7 @@ public class WcaLiveFragment extends Fragment {
         HorizontalScrollView evScroll = new HorizontalScrollView(requireContext());
         evScroll.setHorizontalScrollBarEnabled(false);
         evScroll.addView(eventRow);
+        evScrollView = evScroll;
         page.addView(evScroll, ui.matchWrap(0, 0, 0, 6));
 
         roundRow = new LinearLayout(requireContext());
@@ -872,6 +895,7 @@ public class WcaLiveFragment extends Fragment {
         HorizontalScrollView rdScroll = new HorizontalScrollView(requireContext());
         rdScroll.setHorizontalScrollBarEnabled(false);
         rdScroll.addView(roundRow);
+        rdScrollView = rdScroll;
         page.addView(rdScroll, ui.matchWrap(0, 0, 0, 6));
 
         LinearLayout opts = new LinearLayout(requireContext());
@@ -883,6 +907,7 @@ public class WcaLiveFragment extends Fragment {
             renderResults();
         });
         opts.addView(sortPill);
+        optsRow = opts;
         page.addView(opts, ui.matchWrap(0, 0, 0, 8));
 
         resultsScroll = new ScrollView(requireContext());
@@ -892,7 +917,36 @@ public class WcaLiveFragment extends Fragment {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         page.addView(resultsScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        compScroll = new ScrollView(requireContext());
+        compScroll.setVisibility(View.GONE);
+        page.addView(compScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return page;
+    }
+
+    /** Switches the competition screen between the live results and the competition page. */
+    private void setMode(boolean comp) {
+        compMode = comp;
+        ui.stylePill(modeResults, !comp);
+        ui.stylePill(modeComp, comp);
+        int liveVis = comp ? View.GONE : View.VISIBLE;
+        evScrollView.setVisibility(liveVis);
+        rdScrollView.setVisibility(liveVis);
+        optsRow.setVisibility(liveVis);
+        resultsScroll.setVisibility(liveVis);
+        detailStatus.setVisibility(comp || detailStatus.getText().length() == 0 ? View.GONE : View.VISIBLE);
+        compScroll.setVisibility(comp ? View.VISIBLE : View.GONE);
+        if (comp && currentComp != null) {
+            if (compPage == null || !currentComp.wcaId.equals(compPageFor)) {
+                compPageFor = currentComp.wcaId;
+                compPage = new WcaCompPage(requireContext(), currentComp.wcaId, currentComp.name,
+                        id -> openInResults(id), null);
+                compScroll.removeAllViews();
+                compScroll.addView(compPage.view(), new ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            }
+        }
     }
 
     private void openCompetition(Comp c) {
@@ -910,6 +964,10 @@ public class WcaLiveFragment extends Fragment {
         detailError = null;
         detailFetchedAt = 0L;
         inDetail = true;
+        compPage = null;
+        compPageFor = "";
+        compScroll.removeAllViews();
+        setMode(false);
         listPage.setVisibility(View.GONE);
         detailPage.setVisibility(View.VISIBLE);
         detailTitle.setText(c.name);
@@ -1040,6 +1098,12 @@ public class WcaLiveFragment extends Fragment {
                     ev.rounds.add(rd);
                 }
             }
+            Collections.sort(ev.rounds, new Comparator<Round>() {
+                @Override
+                public int compare(Round a, Round b) {
+                    return a.number - b.number;
+                }
+            });
             evs.add(ev);
         }
         Collections.sort(evs, new Comparator<Ev>() {
@@ -1129,7 +1193,7 @@ public class WcaLiveFragment extends Fragment {
             for (int j = 0; j < ev.rounds.size(); j++) {
                 final int idx = j;
                 Round rd = ev.rounds.get(j);
-                String label = "Round " + rd.number + (rd.rows.isEmpty() ? " (no results)" : "");
+                String label = "Round " + (j + 1) + (rd.rows.isEmpty() ? " (no results)" : "");
                 TextView p = ui.pill(label, j == roundIndex);
                 p.setOnClickListener(v -> {
                     roundIndex = idx;
@@ -1315,7 +1379,6 @@ public class WcaLiveFragment extends Fragment {
         ((LinearLayout.LayoutParams) title.getLayoutParams()).weight = 1f;
         if (p != null && !p.wcaId.isEmpty()) {
             final String openId = p.wcaId;
-            title.setPaintFlags(title.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
             title.setOnClickListener(v -> {
                 if (holder[0] != null) holder[0].dismiss();
                 openInResults(openId);
@@ -1392,12 +1455,15 @@ public class WcaLiveFragment extends Fragment {
         d.show();
     }
 
+    /** Named from the round's place in the event's list, so the numbering always follows the order. */
     private static String roundLabel(Ev ev, Round rd) {
         int total = ev.rounds.size();
-        if (rd.number == total) return "Final";
-        if (total >= 3 && rd.number == total - 1) return "Semi Final";
+        int n = ev.rounds.indexOf(rd) + 1;
+        if (n <= 0) n = rd.number;
+        if (n == total) return "Final";
+        if (total >= 3 && n == total - 1) return "Semi Final";
         String[] names = {"First Round", "Second Round", "Third Round", "Fourth Round"};
-        return rd.number >= 1 && rd.number <= names.length ? names[rd.number - 1] : "Round " + rd.number;
+        return n >= 1 && n <= names.length ? names[n - 1] : "Round " + n;
     }
 
     /** One line of the competitor pop-up table: rank (green when advancing), round, average, best. */
@@ -1472,6 +1538,13 @@ public class WcaLiveFragment extends Fragment {
         TextView title = ui.text((flag.isEmpty() ? "" : flag + " ") + name, 18, true, 1f);
         head.addView(title, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 4, 0));
         ((LinearLayout.LayoutParams) title.getLayoutParams()).weight = 1f;
+        final String pastId = p != null ? p.wcaId : "";
+        if (!pastId.isEmpty()) {
+            title.setOnClickListener(v -> {
+                if (holder[0] != null) holder[0].dismiss();
+                openInResults(pastId);
+            });
+        }
         ImageView close = ui.iconButton(R.drawable.ic_wca_close, 24, ui.itemText);
         close.setContentDescription("Close");
         close.setOnClickListener(v -> {
@@ -1523,6 +1596,15 @@ public class WcaLiveFragment extends Fragment {
         }
         if (!any) list.addView(ui.text("No solves recorded yet.", 14, false, 0.8f), ui.matchWrap(14, 10, 14, 10));
         box.addView(list);
+        if (!pastId.isEmpty()) {
+            TextView past = ui.pill("Previous results", false);
+            past.setOnClickListener(v -> {
+                if (holder[0] != null) holder[0].dismiss();
+                openInResults(pastId);
+            });
+            box.addView(past, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 0, 14, 0, 0));
+        }
         root.addView(box);
 
         android.app.Dialog d = ui.dialog(root);

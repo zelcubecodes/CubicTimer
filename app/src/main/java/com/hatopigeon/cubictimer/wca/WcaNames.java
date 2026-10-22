@@ -14,14 +14,42 @@ public final class WcaNames {
     }
 
     private static final String WCA = "https://www.worldcubeassociation.org/api/v0";
+    private static final String STATIC_API =
+            "https://raw.githubusercontent.com/robiningelbrecht/wca-rest-api/refs/heads/v1";
     private static final Map<String, String[]> CACHE = new HashMap<>();
     private static final Set<String> PENDING = new HashSet<>();
+    private static android.content.SharedPreferences disk = null;
 
     private WcaNames() {}
 
+    /** Call once with any context so names that were found before are remembered between launches. */
+    public static synchronized void init(android.content.Context c) {
+        if (disk == null && c != null) {
+            disk = c.getApplicationContext().getSharedPreferences("wca_names", android.content.Context.MODE_PRIVATE);
+        }
+    }
+
+    private static synchronized void remember(String wcaId, String name, String iso) {
+        CACHE.put(wcaId, new String[]{name, iso});
+        if (disk != null) disk.edit().putString(wcaId, name + "\u0001" + iso).apply();
+    }
+
     /** Returns {name, iso2} if already known, else null. */
     public static synchronized String[] cached(String wcaId) {
-        return CACHE.get(wcaId);
+        String[] v = CACHE.get(wcaId);
+        if (v != null) return v;
+        if (disk != null) {
+            String saved = disk.getString(wcaId, null);
+            if (saved != null) {
+                int i = saved.indexOf('\u0001');
+                if (i > 0) {
+                    v = new String[]{saved.substring(0, i), saved.substring(i + 1)};
+                    CACHE.put(wcaId, v);
+                    return v;
+                }
+            }
+        }
+        return null;
     }
 
     public interface CountryListener {
@@ -98,21 +126,31 @@ public final class WcaNames {
                             String name = p.optString("name", "");
                             if (id.isEmpty() || name.isEmpty()) continue;
                             String[] v = {name, p.optString("country_iso2", "")};
-                            synchronized (WcaNames.class) { CACHE.put(id, v); }
+                            remember(id, v[0], v[1]);
                             l.onName(id, v[0], v[1]);
                         }
                     }
                 } catch (Exception ignored) {
                     // fall through to the one-by-one lookups below
                 }
-                for (String id : todo) if (cached(id) == null) lookup(id, l, 0);
+                lookupOneByOne(todo, l);
             }
 
             @Override
             public void onError(String message) {
-                for (String id : todo) lookup(id, l, 0);
+                lookupOneByOne(todo, l);
             }
         });
+    }
+
+    /** The WCA website refuses a burst of requests, so the leftovers are asked for a little apart. */
+    private static void lookupOneByOne(final java.util.List<String> ids, final Listener l) {
+        android.os.Handler h = new android.os.Handler(android.os.Looper.getMainLooper());
+        int n = 0;
+        for (final String id : ids) {
+            if (cached(id) != null) continue;
+            h.postDelayed(() -> lookup(id, l, 0), 300L * n++);
+        }
     }
 
     /** Calls the listener on the main thread, straight away if the name is already known. */
@@ -132,7 +170,7 @@ public final class WcaNames {
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
                     String[] k = cached(wcaId);
                     if (k != null) l.onName(wcaId, k[0], k[1]);
-                    else if (attempt < 6) lookup(wcaId, l, attempt + 1);
+                    else if (attempt < 8) lookup(wcaId, l, attempt + 1);
                 }, 900);
                 return;
             }
@@ -143,10 +181,9 @@ public final class WcaNames {
                 try {
                     JSONObject p = new JSONObject(body).getJSONObject("person");
                     String[] v = {p.optString("name", wcaId), p.optString("country_iso2", "")};
-                    synchronized (WcaNames.class) {
-                        CACHE.put(wcaId, v);
-                        PENDING.remove(wcaId);
-                    }
+                    if (v[0].isEmpty()) throw new Exception("no name");
+                    remember(wcaId, v[0], v[1]);
+                    synchronized (WcaNames.class) { PENDING.remove(wcaId); }
                     l.onName(wcaId, v[0], v[1]);
                 } catch (Exception e) {
                     retry();
@@ -161,9 +198,41 @@ public final class WcaNames {
             // The WCA site sometimes refuses a burst of requests, so try again a little later.
             private void retry() {
                 synchronized (WcaNames.class) { PENDING.remove(wcaId); }
-                if (attempt >= 4) return;
+                if (attempt == 1) lookupStatic(wcaId, l); // a second source, in case the site is busy
+                if (attempt >= 5) return;
                 new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
-                        () -> lookup(wcaId, l, attempt + 1), 1500L * (attempt + 1));
+                        () -> lookup(wcaId, l, attempt + 1), 2000L * (attempt + 1));
+            }
+        });
+    }
+
+    /** Fallback source: the static ranking data, which has no request limit. Silent when it fails. */
+    private static void lookupStatic(final String wcaId, final Listener l) {
+        WcaHttp.get(STATIC_API + "/persons/" + wcaId + ".json", new WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String body) {
+                try {
+                    JSONObject o = new JSONObject(body);
+                    JSONObject p = o.optJSONObject("person") != null ? o.optJSONObject("person") : o;
+                    String name = p.optString("name", "");
+                    Object c = p.opt("country");
+                    String iso = "";
+                    if (c instanceof JSONObject) {
+                        JSONObject cj = (JSONObject) c;
+                        iso = WcaFlags.code(cj.optString("iso2", cj.optString("id", cj.optString("name", ""))));
+                    } else if (c != null) {
+                        iso = WcaFlags.code(String.valueOf(c));
+                    }
+                    if (iso.isEmpty()) iso = WcaFlags.code(p.optString("country_iso2", p.optString("countryIso2", "")));
+                    if (name.isEmpty() || cached(wcaId) != null) return;
+                    remember(wcaId, name, iso);
+                    l.onName(wcaId, name, iso);
+                } catch (Exception ignored) {
+                }
+            }
+
+            @Override
+            public void onError(String message) {
             }
         });
     }

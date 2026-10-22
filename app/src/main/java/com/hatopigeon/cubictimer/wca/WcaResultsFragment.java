@@ -54,6 +54,11 @@ public class WcaResultsFragment extends Fragment {
     private WcaUi ui;
     private WcaStore store;
     private EditText input;
+    private LinearLayout suggestBox;
+    private Runnable suggestRunnable = () -> { };
+    private int suggestToken = 0;
+    private boolean quietInput = false;
+    private final android.os.Handler uiHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private LinearLayout pinnedRow;
     private final java.util.Set<String> pendingComps = new java.util.HashSet<>();
     private final java.util.Set<String> failedComps = new java.util.HashSet<>();
@@ -78,6 +83,7 @@ public class WcaResultsFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         ui = new WcaUi(requireContext());
         store = new WcaStore(requireContext());
+        WcaNames.init(requireContext());
 
         scroll = new ScrollView(requireContext());
         scroll.setLayoutParams(new ViewGroup.LayoutParams(
@@ -109,6 +115,29 @@ public class WcaResultsFragment extends Fragment {
         go.setOnClickListener(v -> search());
         row.addView(go);
         page.addView(row, ui.matchWrap(0, 0, 0, 8));
+
+        suggestBox = new LinearLayout(requireContext());
+        suggestBox.setOrientation(LinearLayout.VERTICAL);
+        suggestBox.setBackground(ui.rounded(ui.itemBg, ui.dp(8)));
+        suggestBox.setVisibility(View.GONE);
+        page.addView(suggestBox, ui.matchWrap(0, 0, 0, 8));
+        input.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence x, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence x, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable e) {
+                if (quietInput) return;
+                final String q = e.toString().trim();
+                uiHandler.removeCallbacks(suggestRunnable);
+                if (q.length() < 2) {
+                    suggestToken++;
+                    suggestBox.removeAllViews();
+                    suggestBox.setVisibility(View.GONE);
+                    return;
+                }
+                suggestRunnable = () -> runSuggest(q);
+                uiHandler.postDelayed(suggestRunnable, 350);
+            }
+        });
 
         TextView records = ui.pill("World records history", false);
         records.setOnClickListener(v -> startActivity(new Intent(requireContext(), RecordsActivity.class)));
@@ -146,14 +175,27 @@ public class WcaResultsFragment extends Fragment {
     @Override
     public void setUserVisibleHint(boolean isVisibleToUser) {
         super.setUserVisibleHint(isVisibleToUser);
-        if (isVisibleToUser && input != null) checkPendingPerson();
+        if (isVisibleToUser && input != null) {
+            renderPinned();
+            checkPendingPerson();
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // Coming back from Rankings or World records history, or after starring someone in WCA Live.
+        if (input != null && getUserVisibleHint()) {
+            renderPinned();
+            checkPendingPerson();
+        }
     }
 
     /** Opens the competitor another tab asked for (for example from the WCA Live pop-up). */
     private void checkPendingPerson() {
         String id = store.takePendingPerson();
         if (id != null) {
-            input.setText(id);
+            setQuery(id);
             loadPerson(id);
         }
     }
@@ -170,9 +212,16 @@ public class WcaResultsFragment extends Fragment {
             String label = p[1].isEmpty() || p[1].equals(p[0]) ? p[0] : p[1] + " (" + p[0] + ")";
             TextView chip = ui.pill(label, false);
             chip.setOnClickListener(v -> {
-                input.setText(p[0]);
+                setQuery(p[0]);
                 loadPerson(p[0]);
             });
+            // A starred person saved with only an ID gets their name filled in.
+            if (p[1].isEmpty() || p[1].equals(p[0])) {
+                final TextView chipF = chip;
+                WcaNames.lookup(p[0], (wcaId, nm, iso) -> {
+                    if (isAdded()) chipF.setText(nm + " (" + wcaId + ")");
+                });
+            }
             pinnedRow.addView(chip, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
         }
@@ -189,8 +238,89 @@ public class WcaResultsFragment extends Fragment {
 
     // ---------------------------------------------------------------- search
 
+    private void hideSuggestions() {
+        uiHandler.removeCallbacks(suggestRunnable);
+        suggestToken++;
+        if (suggestBox != null) {
+            suggestBox.removeAllViews();
+            suggestBox.setVisibility(View.GONE);
+        }
+    }
+
+    /** Puts text in the search box without opening the drop-down. */
+    private void setQuery(String text) {
+        quietInput = true;
+        input.setText(text);
+        quietInput = false;
+        hideSuggestions();
+    }
+
+    /** Drop-down under the search box: people whose name or WCA ID matches what was typed. */
+    private void runSuggest(final String q) {
+        if (q.length() < 2 || !isAdded()) return;
+        final int tokenNow = ++suggestToken;
+        suggestBox.removeAllViews();
+        suggestBox.setVisibility(View.VISIBLE);
+        suggestBox.addView(ui.text("Searching...", 14, false, 0.8f), ui.matchWrap(14, 12, 14, 12));
+        ui.recolor(suggestBox, ui.text, ui.itemText);
+        WcaHttp.get(WCA + "/search/users?persons_table=true&q=" + Uri.encode(q), new WcaHttp.Callback() {
+            @Override
+            public void onSuccess(String text) {
+                if (!isAdded() || tokenNow != suggestToken) return;
+                suggestBox.removeAllViews();
+                try {
+                    JSONArray arr = new JSONObject(text).optJSONArray("result");
+                    int count = 0;
+                    if (arr != null) {
+                        for (int i = 0; i < arr.length() && count < 8; i++) {
+                            JSONObject o = arr.getJSONObject(i);
+                            final String id = o.optString("wca_id");
+                            if (id.isEmpty() || "null".equals(id)) continue;
+                            suggestBox.addView(buildSuggestRow(id, o.optString("name"), o.optString("country_iso2")));
+                            count++;
+                        }
+                    }
+                    if (count == 0) {
+                        suggestBox.addView(ui.text("No competitors found.", 14, false, 0.8f),
+                                ui.matchWrap(14, 12, 14, 12));
+                    }
+                } catch (Exception e) {
+                    suggestBox.addView(ui.text("Unexpected response from the WCA website.", 14, false, 0.8f),
+                            ui.matchWrap(14, 12, 14, 12));
+                }
+                ui.recolor(suggestBox, ui.text, ui.itemText);
+            }
+
+            @Override
+            public void onError(String message) {
+                if (!isAdded() || tokenNow != suggestToken) return;
+                suggestBox.removeAllViews();
+                suggestBox.addView(ui.text(WcaHttp.describe(requireContext(), message) + ".", 14, false, 0.8f),
+                        ui.matchWrap(14, 12, 14, 12));
+                ui.recolor(suggestBox, ui.text, ui.itemText);
+            }
+        });
+    }
+
+    private View buildSuggestRow(final String id, final String name, String iso) {
+        LinearLayout row = new LinearLayout(requireContext());
+        row.setOrientation(LinearLayout.VERTICAL);
+        row.setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10));
+        String flag = WcaFlags.emoji(iso);
+        row.addView(ui.text((flag.isEmpty() ? "" : flag + " ") + name, 15, true, 1f));
+        row.addView(ui.text(id, 12, false, 0.7f));
+        ui.recolor(row, ui.text, ui.itemText);
+        row.setOnClickListener(v -> {
+            hideKeyboard();
+            setQuery(id);
+            loadPerson(id);
+        });
+        return row;
+    }
+
     private void search() {
         hideKeyboard();
+        hideSuggestions();
         String q = input.getText().toString().trim();
         if (q.isEmpty()) {
             status.setText("Type a WCA ID or a name first.");
@@ -226,7 +356,7 @@ public class WcaResultsFragment extends Fragment {
                             card.addView(ui.text((sFlag.isEmpty() ? "" : sFlag + " ") + o.optString("name"), 16, true, 1f));
                             card.addView(ui.text(id, 13, false, 0.8f));
                             card.setOnClickListener(v -> {
-                                input.setText(id);
+                                setQuery(id);
                                 loadPerson(id);
                             });
                             body.addView(card, ui.matchWrap(0, 4, 0, 4));
@@ -799,154 +929,20 @@ public class WcaResultsFragment extends Fragment {
 
     // ---------------------------------------------------------------- competition page
 
-    private void addInfo(LinearLayout card, String label, String value) {
-        if (value == null || value.trim().isEmpty()) return;
-        LinearLayout row = new LinearLayout(requireContext());
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        TextView l = ui.text(label, 13, true, 0.7f);
-        row.addView(l, ui.lp(ui.dp(104), ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        TextView v = ui.text(value, 14, false, 1f);
-        row.addView(v, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
-        ((LinearLayout.LayoutParams) v.getLayoutParams()).weight = 1f;
-        card.addView(row, ui.matchWrap(0, 4, 0, 4));
-    }
-
-    private static String names(JSONArray arr) {
-        if (arr == null) return "";
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < arr.length(); i++) {
-            JSONObject o = arr.optJSONObject(i);
-            if (o == null) continue;
-            String n = o.optString("name");
-            if (n.isEmpty()) continue;
-            if (sb.length() > 0) sb.append(", ");
-            sb.append(n);
-        }
-        return sb.toString();
-    }
-
-    private static String dates(String start, String end) {
-        try {
-            SimpleDateFormat in = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
-            Date a = in.parse(start);
-            Date b = end == null || end.isEmpty() ? a : in.parse(end);
-            SimpleDateFormat md = new SimpleDateFormat("MMM d", Locale.ENGLISH);
-            SimpleDateFormat d = new SimpleDateFormat("d", Locale.ENGLISH);
-            SimpleDateFormat y = new SimpleDateFormat("yyyy", Locale.ENGLISH);
-            SimpleDateFormat m = new SimpleDateFormat("MMM", Locale.ENGLISH);
-            if (a == null || b == null) return start;
-            if (start.equals(end)) return md.format(a) + ", " + y.format(a);
-            if (m.format(a).equals(m.format(b)) && y.format(a).equals(y.format(b))) {
-                return md.format(a) + " - " + d.format(b) + ", " + y.format(a);
-            }
-            return md.format(a) + " - " + md.format(b) + ", " + y.format(b);
-        } catch (Exception e) {
-            return start;
-        }
-    }
-
-    /** A page for one competition: when and where, the events, the team, and links to its results. */
+    /** The competition page: details, competitors and psych sheets, events, schedule and podiums. */
     private void showCompetitionPage(final String cid, final String name) {
         body.removeAllViews();
         status.setText("");
         TextView back = ui.pill("\u2190 Back", false);
         back.setOnClickListener(v -> render());
         body.addView(back, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 6));
-
-        final LinearLayout card = ui.card(false);
-        card.addView(ui.text(name, 20, true, 1f));
-        final TextView loading = ui.text("Loading competition...", 14, false, 0.8f);
-        card.addView(loading, ui.matchWrap(0, 6, 0, 0));
-        body.addView(card, ui.matchWrap(0, 4, 0, 4));
-
-        final LinearLayout actions = new LinearLayout(requireContext());
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        TextView live = ui.pill("Results in WCA Live", true);
-        live.setOnClickListener(v -> openCompetition(cid, name));
-        TextView web = ui.pill("WCA website", false);
-        web.setOnClickListener(v -> startActivity(new Intent(Intent.ACTION_VIEW,
-                Uri.parse("https://www.worldcubeassociation.org/competitions/" + Uri.encode(cid)))));
-        actions.addView(live, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        actions.addView(web);
-        body.addView(actions, ui.matchWrap(0, 8, 0, 8));
-
-        WcaHttp.get(WCA + "/competitions/" + Uri.encode(cid), new WcaHttp.Callback() {
-            @Override
-            public void onSuccess(String text) {
-                if (!isAdded()) return;
-                card.removeView(loading);
-                try {
-                    JSONObject c = new JSONObject(text);
-                    String flag = WcaFlags.emoji(c.optString("country_iso2"));
-                    if (!flag.isEmpty()) {
-                        ((TextView) card.getChildAt(0)).setText(flag + " " + c.optString("name", name));
-                    }
-                    String when = dates(c.optString("start_date"), c.optString("end_date"));
-                    addInfo(card, "Date", when);
-                    String iso = c.optString("country_iso2");
-                    String country = iso.isEmpty() ? "" : new Locale("", iso).getDisplayCountry(Locale.ENGLISH);
-                    String city = c.optString("city");
-                    addInfo(card, "Location", city + (city.isEmpty() || country.isEmpty() ? "" : ", ") + country);
-                    String venue = c.optString("venue").replaceAll("\\[([^\\]]+)\\]\\([^)]*\\)", "$1");
-                    addInfo(card, "Venue", venue);
-                    addInfo(card, "Address", c.optString("venue_address"));
-                    addInfo(card, "Details", c.optString("venue_details"));
-                    addInfo(card, "Delegates", names(c.optJSONArray("delegates")));
-                    addInfo(card, "Organizers", names(c.optJSONArray("organizers")));
-                    int limitN = c.optInt("competitor_limit", 0);
-                    if (limitN > 0) addInfo(card, "Competitor limit", String.valueOf(limitN));
-                    String ro = c.optString("registration_open");
-                    String rc = c.optString("registration_close");
-                    if (ro.length() >= 10) addInfo(card, "Registration opens", ro.substring(0, 10));
-                    if (rc.length() >= 10) addInfo(card, "Registration closes", rc.substring(0, 10));
-                    if (!c.optString("cancelled_at").isEmpty() && !"null".equals(c.optString("cancelled_at"))) {
-                        addInfo(card, "Status", "Cancelled");
-                    }
-                    JSONArray evs = c.optJSONArray("event_ids");
-                    if (evs != null && evs.length() > 0) {
-                        card.addView(ui.text("Events", 13, true, 0.7f), ui.matchWrap(0, 10, 0, 4));
-                        LinearLayout wrap = new LinearLayout(requireContext());
-                        wrap.setOrientation(LinearLayout.HORIZONTAL);
-                        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(requireContext());
-                        hs.setHorizontalScrollBarEnabled(false);
-                        hs.addView(wrap);
-                        for (int i = 0; i < evs.length(); i++) {
-                            String id = evs.optString(i);
-                            android.graphics.drawable.Drawable ic = ui.eventIcon(id, 28, ui.itemText);
-                            if (ic == null) continue;
-                            android.widget.ImageView iv = new android.widget.ImageView(requireContext());
-                            iv.setImageDrawable(ic);
-                            iv.setScaleType(android.widget.ImageView.ScaleType.CENTER);
-                            iv.setContentDescription(WcaFormat.eventName(id));
-                            wrap.addView(iv, ui.lp(ui.dp(40), ui.dp(40), 0, 0, 4, 0));
-                        }
-                        card.addView(hs);
-                    }
-                    double lat = c.optDouble("latitude_degrees", Double.NaN);
-                    double lon = c.optDouble("longitude_degrees", Double.NaN);
-                    if (!Double.isNaN(lat) && !Double.isNaN(lon)) {
-                        final String geo = "geo:" + lat + "," + lon + "?q=" + lat + "," + lon;
-                        TextView map = ui.pill("Map", false);
-                        map.setOnClickListener(v -> {
-                            try {
-                                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(geo)));
-                            } catch (Exception ignored) {
-                            }
-                        });
-                        actions.addView(map, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
-                                ViewGroup.LayoutParams.WRAP_CONTENT, 8, 0, 0, 0));
-                    }
-                } catch (Exception e) {
-                    card.addView(ui.text("Could not read the competition details.", 14, false, 0.8f),
-                            ui.matchWrap(0, 6, 0, 0));
-                }
-            }
-
-            @Override
-            public void onError(String message) {
-                if (!isAdded()) return;
-                loading.setText(WcaHttp.describe(requireContext(), message) + ". You can still open its results above.");
-            }
-        });
+        body.addView(ui.text(name, 20, true, 1f), ui.matchWrap(4, 0, 4, 4));
+        WcaCompPage page = new WcaCompPage(requireContext(), cid, name, id -> {
+            setQuery(id);
+            loadPerson(id);
+            scroll.smoothScrollTo(0, 0);
+        }, () -> openCompetition(cid, name));
+        body.addView(page.view(), ui.matchWrap(0, 0, 0, 0));
+        scroll.post(() -> scroll.scrollTo(0, 0));
     }
 }
