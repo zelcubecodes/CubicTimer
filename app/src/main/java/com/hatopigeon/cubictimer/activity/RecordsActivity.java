@@ -70,6 +70,11 @@ public class RecordsActivity extends AppCompatActivity {
     private int mLiveToken = 0;
     private LineChart mChart;
     private RecyclerView mList;
+    private LinearLayout mHistoryBox;
+    private android.widget.ScrollView mRecordsBox;
+    private TextView mModeRecords;
+    private TextView mModeHistory;
+    private boolean mHistoryMode = false;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -216,7 +221,7 @@ public class RecordsActivity extends AppCompatActivity {
         back.setContentDescription(getString(R.string.records_back));
         back.setOnClickListener(v -> getOnBackPressedDispatcher().onBackPressed());
         header.addView(back, new LinearLayout.LayoutParams(dp(56), dp(56)));
-        TextView title = text(getString(R.string.records_title), 20, true, 1f);
+        TextView title = text("Records", 20, true, 1f);
         header.addView(title, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         root.addView(header, new LinearLayout.LayoutParams(
@@ -231,6 +236,40 @@ public class RecordsActivity extends AppCompatActivity {
             return;
         }
 
+        // Records / History switch.
+        LinearLayout modes = new LinearLayout(this);
+        modes.setOrientation(LinearLayout.HORIZONTAL);
+        mModeRecords = text("Records", 16, true, 1f);
+        mModeHistory = text("History", 16, true, 0.6f);
+        for (TextView t : new TextView[]{mModeRecords, mModeHistory}) {
+            t.setGravity(Gravity.CENTER);
+            t.setMinHeight(dp(44));
+            modes.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        }
+        mModeRecords.setOnClickListener(v -> setMode(false));
+        mModeHistory.setOnClickListener(v -> setMode(true));
+        LinearLayout.LayoutParams modesLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        modesLp.setMargins(dp(16), 0, dp(16), dp(4));
+        root.addView(modes, modesLp);
+
+        // Current records for every event.
+        mRecordsBox = new android.widget.ScrollView(this);
+        float rr = dp(28);
+        GradientDrawable recBg = new GradientDrawable();
+        recBg.setColor(mPanelColor);
+        recBg.setCornerRadii(new float[]{rr, rr, rr, rr, 0, 0, 0, 0});
+        mRecordsBox.setBackground(recBg);
+        mRecordsBox.addView(buildRecordsList());
+        root.addView(mRecordsBox, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        // History: everything that used to be on this page.
+        mHistoryBox = new LinearLayout(this);
+        mHistoryBox.setOrientation(LinearLayout.VERTICAL);
+        root.addView(mHistoryBox, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
         // Event picker: a rounded pill.
         mEventButton = text("", 18, true, 1f);
         mEventButton.setGravity(Gravity.CENTER_VERTICAL);
@@ -241,7 +280,7 @@ public class RecordsActivity extends AppCompatActivity {
         LinearLayout.LayoutParams pickerLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         pickerLp.setMargins(dp(16), dp(4), dp(16), dp(8));
-        root.addView(mEventButton, pickerLp);
+        mHistoryBox.addView(mEventButton, pickerLp);
 
         mLiveNote = text("", 13, false, 1f);
         mLiveNote.setPadding(dp(14), dp(8), dp(14), dp(8));
@@ -250,7 +289,7 @@ public class RecordsActivity extends AppCompatActivity {
         LinearLayout.LayoutParams liveLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         liveLp.setMargins(dp(16), 0, dp(16), dp(8));
-        root.addView(mLiveNote, liveLp);
+        mHistoryBox.addView(mLiveNote, liveLp);
 
         // Single / Average tabs.
         LinearLayout tabs = new LinearLayout(this);
@@ -267,7 +306,7 @@ public class RecordsActivity extends AppCompatActivity {
         LinearLayout.LayoutParams tabsLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         tabsLp.setMargins(dp(16), 0, dp(16), dp(12));
-        root.addView(tabs, tabsLp);
+        mHistoryBox.addView(tabs, tabsLp);
 
         // Foreground panel with rounded top corners holding the chart and the list.
         LinearLayout panel = new LinearLayout(this);
@@ -306,11 +345,111 @@ public class RecordsActivity extends AppCompatActivity {
         foot.setPadding(dp(20), dp(8), dp(20), dp(8));
         panel.addView(foot);
 
-        root.addView(panel, new LinearLayout.LayoutParams(
+        mHistoryBox.addView(panel, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        applyMode();
         setContentView(root);
         InsetsUtils.applySafeInsetsPadding(root, false);
+    }
+
+    private void setMode(boolean history) {
+        mHistoryMode = history;
+        applyMode();
+    }
+
+    private void applyMode() {
+        mRecordsBox.setVisibility(mHistoryMode ? View.GONE : View.VISIBLE);
+        mHistoryBox.setVisibility(mHistoryMode ? View.VISIBLE : View.GONE);
+        styleTab(mModeRecords, !mHistoryMode);
+        styleTab(mModeHistory, mHistoryMode);
+    }
+
+    /** The records that are standing now: one card per event, single and average. */
+    private View buildRecordsList() {
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(14), dp(12), dp(24));
+        for (int i = 0; i < mEventIds.size(); i++) {
+            final int index = i;
+            String id = mEventIds.get(i);
+            JSONObject ev;
+            try {
+                ev = mData.getJSONObject("events").getJSONObject(id);
+            } catch (Exception e) {
+                continue;
+            }
+            String format = ev.optString("format", "time");
+            LinearLayout card = new LinearLayout(this);
+            card.setOrientation(LinearLayout.VERTICAL);
+            card.setPadding(dp(16), dp(12), dp(16), dp(12));
+            card.setBackground(rounded(mCardColor, dp(16)));
+            TextView name = text(mEventNames.get(i), 17, true, 1f);
+            android.graphics.drawable.Drawable ic = eventIcon(id, 26);
+            if (ic != null) {
+                name.setCompoundDrawablesRelative(ic, null, null, null);
+                name.setCompoundDrawablePadding(dp(12));
+                name.setGravity(Gravity.CENTER_VERTICAL);
+            }
+            card.addView(name);
+            String note = ev.optString("note", "");
+            if (!note.isEmpty()) {
+                card.addView(text(note, 13, false, 0.75f));
+            } else {
+                addCurrent(card, "Single", ev.optJSONArray("single"), format, false, index);
+                addCurrent(card, "Average", ev.optJSONArray("average"), format, true, index);
+            }
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lp.setMargins(0, dp(5), 0, dp(5));
+            list.addView(card, lp);
+        }
+        return list;
+    }
+
+    private void addCurrent(LinearLayout card, String label, JSONArray arr, String format,
+                            final boolean average, final int eventIndex) {
+        if (arr == null || arr.length() == 0) return;
+        // The record is the latest entry; ties are all marked current.
+        List<JSONObject> now = new ArrayList<>();
+        for (int k = arr.length() - 1; k >= 0; k--) {
+            JSONObject r = arr.optJSONObject(k);
+            if (r != null && r.optBoolean("current")) now.add(r);
+        }
+        if (now.isEmpty()) {
+            JSONObject last = arr.optJSONObject(arr.length() - 1);
+            if (last != null) now.add(last);
+        }
+        if (now.isEmpty()) return;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(8), 0, 0);
+        TextView lab = text(label, 13, true, 0.7f);
+        row.addView(lab, new LinearLayout.LayoutParams(dp(64), ViewGroup.LayoutParams.WRAP_CONTENT));
+        TextView value = text(formatValue(now.get(0).optLong("v"), format, average), 20, true, 1f);
+        row.addView(value, new LinearLayout.LayoutParams(dp(120), ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout who = new LinearLayout(this);
+        who.setOrientation(LinearLayout.VERTICAL);
+        for (JSONObject r : now) {
+            String country = r.optString("country");
+            TextView w = text(r.optString("name") + (country.isEmpty() ? "" : " \u00B7 " + country), 14, false, 1f);
+            final String pid = r.optString("pid");
+            if (!pid.isEmpty()) {
+                w.setOnClickListener(v -> {
+                    new com.hatopigeon.cubictimer.wca.WcaStore(RecordsActivity.this).setPendingPerson(pid);
+                    finish();
+                });
+            }
+            who.addView(w);
+        }
+        row.addView(who, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        row.setOnClickListener(v -> {
+            mEventIndex = eventIndex;
+            mShowAverage = average;
+            setMode(true);
+            refresh();
+        });
+        card.addView(row);
     }
 
     private android.graphics.drawable.Drawable eventIcon(String id, int sizeDp) {
