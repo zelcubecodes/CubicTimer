@@ -27,6 +27,7 @@ import org.json.JSONObject;
 
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -139,7 +140,7 @@ public class WcaResultsFragment extends Fragment {
             }
         });
 
-        TextView records = ui.pill("World records history", false);
+        TextView records = ui.pill("Records", false);
         records.setOnClickListener(v -> startActivity(new Intent(requireContext(), RecordsActivity.class)));
         TextView rankings = ui.pill("Rankings", false);
         rankings.setOnClickListener(v -> startActivity(new Intent(requireContext(),
@@ -184,7 +185,7 @@ public class WcaResultsFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
-        // Coming back from Rankings or World records history, or after starring someone in WCA Live.
+        // Coming back from Rankings or Records, or after starring someone in WCA Live.
         if (input != null && getUserVisibleHint()) {
             renderPinned();
             checkPendingPerson();
@@ -586,8 +587,10 @@ public class WcaResultsFragment extends Fragment {
             LinearLayout top = new LinearLayout(requireContext());
             top.setOrientation(LinearLayout.HORIZONTAL);
             top.setGravity(Gravity.CENTER_VERTICAL);
-            top.addView(ui.avatar(name.isEmpty() ? id : name, WcaUi.avatarUrl(person, true), 76),
-                    ui.lp(ui.dp(76), ui.dp(76), 0, 0, 14, 0));
+            final String bigUrl = WcaUi.avatarUrl(person, true);
+            android.widget.FrameLayout pic = ui.avatar(name.isEmpty() ? id : name, bigUrl, 76);
+            ui.makeZoomable(pic, bigUrl);
+            top.addView(pic, ui.lp(ui.dp(76), ui.dp(76), 0, 0, 14, 0));
             LinearLayout info = new LinearLayout(requireContext());
             info.setOrientation(LinearLayout.VERTICAL);
             info.addView(ui.text(name.isEmpty() ? id : name, 20, true, 1f));
@@ -620,23 +623,45 @@ public class WcaResultsFragment extends Fragment {
             top.addView(actions);
             head.addView(top);
 
+            // Row 1 always has two equal boxes; row 2 (medals, records) keeps the same box size even when only one exists.
             LinearLayout stats = new LinearLayout(requireContext());
             stats.setOrientation(LinearLayout.HORIZONTAL);
             int comps = root.optInt("competition_count", -1);
-            if (comps >= 0) stats.addView(statBox(String.valueOf(comps), "competitions", ""), statLp());
+            stats.addView(statBox(comps >= 0 ? String.valueOf(comps) : "-", "competitions", ""), statLp());
+            stats.addView(statBox(String.valueOf(completedSolves(resultsJson)), "completed solves", ""), statLp());
+            head.addView(stats, ui.matchWrap(0, 14, 0, 0));
+
             JSONObject medals = root.optJSONObject("medals");
-            if (medals != null && medals.optInt("total", 0) > 0) {
-                stats.addView(statBox(String.valueOf(medals.optInt("total")), "medals",
-                        medals.optInt("gold") + " / " + medals.optInt("silver") + " / " + medals.optInt("bronze")),
-                        statLp());
-            }
             JSONObject recs = root.optJSONObject("records");
-            if (recs != null && recs.optInt("total", 0) > 0) {
-                stats.addView(statBox(String.valueOf(recs.optInt("total")), "records",
-                        recs.optInt("world") + " WR \u00B7 " + recs.optInt("continental") + " CR \u00B7 "
-                                + recs.optInt("national") + " NR"), statLp());
+            boolean hasMedals = medals != null && medals.optInt("total", 0) > 0;
+            boolean hasRecs = recs != null && recs.optInt("total", 0) > 0;
+            if (hasMedals || hasRecs) {
+                LinearLayout row2 = new LinearLayout(requireContext());
+                row2.setOrientation(LinearLayout.HORIZONTAL);
+                if (hasMedals) {
+                    LinearLayout m = new LinearLayout(requireContext());
+                    m.setOrientation(LinearLayout.HORIZONTAL);
+                    m.setGravity(Gravity.CENTER);
+                    m.addView(ui.medalCount(1, medals.optInt("gold"), 15));
+                    m.addView(ui.medalCount(2, medals.optInt("silver"), 15));
+                    m.addView(ui.medalCount(3, medals.optInt("bronze"), 15));
+                    row2.addView(symbolBox(m, "medals"), statLp());
+                } else {
+                    row2.addView(new View(requireContext()), statLp());
+                }
+                if (hasRecs) {
+                    LinearLayout r = new LinearLayout(requireContext());
+                    r.setOrientation(LinearLayout.HORIZONTAL);
+                    r.setGravity(Gravity.CENTER);
+                    if (recs.optInt("world") > 0) r.addView(ui.recordCount("WR", recs.optInt("world"), 15));
+                    if (recs.optInt("continental") > 0) r.addView(ui.recordCount("CR", recs.optInt("continental"), 15));
+                    if (recs.optInt("national") > 0) r.addView(ui.recordCount("NR", recs.optInt("national"), 15));
+                    row2.addView(symbolBox(r, "records"), statLp());
+                } else {
+                    row2.addView(new View(requireContext()), statLp());
+                }
+                head.addView(row2, ui.matchWrap(0, 6, 0, 0));
             }
-            if (stats.getChildCount() > 0) head.addView(stats, ui.matchWrap(0, 14, 0, 0));
             body.addView(head, ui.matchWrap(0, 4, 0, 4));
 
             if (fromCache) {
@@ -646,11 +671,44 @@ public class WcaResultsFragment extends Fragment {
             }
 
             addPersonalRecords(root.optJSONObject("personal_records"));
-            addHistory(new JSONArray(resultsJson));
+            JSONArray allResults = new JSONArray(resultsJson);
+            addRecordsList(allResults);
+            addChampionshipPodiums(allResults, country);
+            addHistory(allResults);
         } catch (Exception e) {
             e.printStackTrace();
             status.setText("Unexpected data from the WCA website for " + openId + ".");
         }
+    }
+
+    /** Number of solves that were not DNF/DNS, from the person's results. */
+    private static int completedSolves(String resultsJson) {
+        int n = 0;
+        try {
+            JSONArray arr = new JSONArray(resultsJson);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONArray at = arr.getJSONObject(i).optJSONArray("attempts");
+                if (at == null) continue;
+                for (int k = 0; k < at.length(); k++) if (at.optLong(k) > 0) n++;
+            }
+        } catch (Exception ignored) {
+        }
+        return n;
+    }
+
+    /** A stat box that holds symbols (medals, record badges) with a small label under them. */
+    private View symbolBox(View symbols, String label) {
+        LinearLayout box = new LinearLayout(requireContext());
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(ui.dp(6), ui.dp(10), ui.dp(6), ui.dp(10));
+        box.setBackground(ui.rounded(androidx.core.graphics.ColorUtils.blendARGB(ui.itemBg, ui.safe, 0.08f), ui.dp(10)));
+        box.addView(symbols, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ui.dp(30)));
+        TextView l = ui.text(label, 11, false, 0.75f);
+        l.setTextColor(ui.safe);
+        l.setAlpha(0.75f);
+        box.addView(l);
+        return box;
     }
 
     private LinearLayout.LayoutParams statLp() {
@@ -724,7 +782,7 @@ public class WcaResultsFragment extends Fragment {
             JSONObject avg = e.optJSONObject("average");
             LinearLayout line = tableRow(n++ % 2 == 0 ? 3 : 2);
             TextView title = ui.text(WcaFormat.eventName(ev), 14, false, 1f);
-            ui.setEventIcon(title, ev, 20, ui.text);
+            ui.setEventIcon(title, ev, 20, ui.safe);
             title.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widths[0]), ViewGroup.LayoutParams.WRAP_CONTENT));
             line.addView(title);
             boolean hasS = single != null && single.optLong("best") != 0;
@@ -764,6 +822,186 @@ public class WcaResultsFragment extends Fragment {
             t.setAlpha(0.65f);
         }
         return t;
+    }
+
+    // ---------------------------------------------------------------- records and championship podiums
+
+    private String compName(String cid) {
+        return compInfo != null && compInfo.containsKey(cid) ? compInfo.get(cid)[0] : cid;
+    }
+
+    private String compDate(String cid) {
+        return compInfo != null && compInfo.containsKey(cid) ? compInfo.get(cid)[1] : "";
+    }
+
+    private TextView compLink(final String cid, int widthDp) {
+        final String cname = compName(cid);
+        TextView link = cell(cname, widthDp, false);
+        link.setTextColor(0xFFE8531F);
+        link.setPaintFlags(link.getPaintFlags() | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
+        link.setOnClickListener(v -> showCompetitionPage(cid, cname));
+        return link;
+    }
+
+    private View iconBox(android.graphics.drawable.Drawable d, int widthDp) {
+        android.widget.ImageView iv = new android.widget.ImageView(requireContext());
+        iv.setImageDrawable(d);
+        iv.setScaleType(android.widget.ImageView.ScaleType.CENTER);
+        iv.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widthDp), ui.dp(26)));
+        return iv;
+    }
+
+    /** Every result that set a world, continental or national record (rows tagged WR, CR, NR...). */
+    private void addRecordsList(JSONArray results) {
+        List<JSONObject> rows = new ArrayList<>();
+        List<String> tags = new ArrayList<>();
+        List<Boolean> isAvg = new ArrayList<>();
+        for (int i = 0; i < results.length(); i++) {
+            JSONObject r = results.optJSONObject(i);
+            if (r == null) continue;
+            String st = regionTag(r, "regional_single_record");
+            String at = regionTag(r, "regional_average_record");
+            if (!st.isEmpty()) { rows.add(r); tags.add(st); isAvg.add(false); }
+            if (!at.isEmpty()) { rows.add(r); tags.add(at); isAvg.add(true); }
+        }
+        if (rows.isEmpty()) return;
+        Integer[] order = new Integer[rows.size()];
+        for (int i = 0; i < order.length; i++) order[i] = i;
+        final List<JSONObject> fr = rows;
+        Arrays.sort(order, (x, y) -> {
+            int c = compDate(fr.get(y).optString("competition_id")).compareTo(compDate(fr.get(x).optString("competition_id")));
+            if (c != 0) return c;
+            return WcaFormat.eventOrder(fr.get(x).optString("event_id")) - WcaFormat.eventOrder(fr.get(y).optString("event_id"));
+        });
+        body.addView(ui.label("Records", 18, true), ui.matchWrap(0, 12, 0, 6));
+        LinearLayout card = ui.card(false);
+        card.setPadding(0, 0, 0, 0);
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(requireContext());
+        LinearLayout table = new LinearLayout(requireContext());
+        table.setOrientation(LinearLayout.VERTICAL);
+        hs.addView(table);
+        LinearLayout header = tableRow(0);
+        header.addView(cell("", 52, true));
+        header.addView(cell("Event", 44, true));
+        header.addView(cell("Type", 76, true));
+        header.addView(cell("Result", 96, true));
+        header.addView(cell("Competition", 220, true));
+        table.addView(header);
+        int shownRows = Math.min(order.length, 30);
+        for (int k = 0; k < shownRows; k++) {
+            int i = order[k];
+            JSONObject r = rows.get(i);
+            String ev = r.optString("event_id");
+            boolean avg = isAvg.get(i);
+            LinearLayout line = tableRow(k % 2 == 0 ? 2 : 3);
+            LinearLayout chip = new LinearLayout(requireContext());
+            chip.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(52), ViewGroup.LayoutParams.WRAP_CONTENT));
+            chip.addView(ui.badge(tags.get(i)));
+            line.addView(chip);
+            line.addView(iconBox(ui.eventIcon(ev, 22, ui.safe), 44));
+            line.addView(cell(avg ? "Average" : "Single", 76, false));
+            line.addView(cell(WcaFormat.formatResult(r.optLong(avg ? "average" : "best"), ev, avg), 96, true));
+            line.addView(compLink(r.optString("competition_id"), 220));
+            table.addView(line);
+        }
+        card.addView(hs);
+        body.addView(card, ui.matchWrap(0, 4, 0, 4));
+        if (order.length > shownRows) {
+            body.addView(ui.text((order.length - shownRows) + " older records are not shown.", 12, false, 0.7f),
+                    ui.matchWrap(4, 2, 4, 4));
+        }
+    }
+
+    private static final String[][] DEMONYMS = {
+            {"PH", "philippine", "philippines", "filipino"}, {"ID", "indonesia", "indonesian"},
+            {"MY", "malaysia", "malaysian"}, {"SG", "singapore"}, {"TH", "thai", "thailand"},
+            {"VN", "vietnam", "vietnamese"}, {"JP", "japan", "japanese"}, {"KR", "korea", "korean"},
+            {"IN", "india", "indian"}, {"AU", "australia", "australian"}, {"NZ", "new zealand"},
+            {"US", "usa", "united states", "american"}, {"CA", "canada", "canadian"},
+            {"MX", "mexico", "mexican"}, {"BR", "brazil", "brazilian"}, {"AR", "argentina", "argentine"},
+            {"CL", "chile", "chilean"}, {"CO", "colombia", "colombian"}, {"PE", "peru", "peruvian"},
+            {"GB", "uk", "united kingdom", "british"}, {"IE", "ireland", "irish"}, {"FR", "france", "french"},
+            {"DE", "germany", "german"}, {"ES", "spain", "spanish"}, {"IT", "italy", "italian"},
+            {"PL", "poland", "polish"}, {"NL", "netherlands", "dutch"}, {"BE", "belgium", "belgian"},
+            {"SE", "sweden", "swedish"}, {"NO", "norway", "norwegian"}, {"FI", "finland", "finnish"},
+            {"DK", "denmark", "danish"}, {"CZ", "czech"}, {"TR", "turkey", "turkish"},
+            {"UA", "ukraine", "ukrainian"}, {"RU", "russia", "russian"}, {"CN", "china", "chinese"},
+            {"HK", "hong kong"}, {"TW", "taiwan"}, {"ZA", "south africa", "south african"},
+            {"EG", "egypt", "egyptian"}, {"NG", "nigeria", "nigerian"}
+    };
+
+    /**
+     * The WCA data this app reads does not say which competitions are championships, so this goes by
+     * the competition's name: World, continental, or the person's own national championship.
+     * Returns 0 for none, otherwise 1 world, 2 continental, 3 national.
+     */
+    private static int championshipLevel(String name, String personIso) {
+        String n = name.toLowerCase(Locale.US);
+        if (!n.contains("championship")) return 0;
+        if (n.contains("world championship") || n.contains("world rubik")) return 1;
+        String[] conts = {"asian championship", "european championship", "african championship",
+                "north american championship", "south american championship", "oceanian championship",
+                "latin american championship", "asia championship", "europe championship"};
+        for (String c : conts) if (n.contains(c)) return 2;
+        if (n.contains("national championship") || n.contains("nationals")) return 3;
+        String iso = personIso == null ? "" : personIso.toUpperCase(Locale.US);
+        for (String[] d : DEMONYMS) {
+            if (!d[0].equals(iso)) continue;
+            for (int i = 1; i < d.length; i++) {
+                if (n.matches(".*\\b" + java.util.regex.Pattern.quote(d[i]) + "\\b.*championship.*")) return 3;
+            }
+        }
+        return 0;
+    }
+
+    /** Top-three finishes in the final of a World, continental or national championship. */
+    private void addChampionshipPodiums(JSONArray results, String personIso) {
+        List<JSONObject> rows = new ArrayList<>();
+        for (int i = 0; i < results.length(); i++) {
+            JSONObject r = results.optJSONObject(i);
+            if (r == null) continue;
+            String rt = r.optString("round_type_id");
+            int pos = r.optInt("pos", 0);
+            if (!(rt.equals("f") || rt.equals("c")) || pos < 1 || pos > 3) continue;
+            if (r.optLong("best") <= 0) continue;
+            if (championshipLevel(compName(r.optString("competition_id")), personIso) == 0) continue;
+            rows.add(r);
+        }
+        if (rows.isEmpty()) return;
+        Collections.sort(rows, (x, y) -> {
+            int c = compDate(y.optString("competition_id")).compareTo(compDate(x.optString("competition_id")));
+            if (c != 0) return c;
+            return WcaFormat.eventOrder(x.optString("event_id")) - WcaFormat.eventOrder(y.optString("event_id"));
+        });
+        body.addView(ui.label("Championship podiums", 18, true), ui.matchWrap(0, 12, 0, 6));
+        LinearLayout card = ui.card(false);
+        card.setPadding(0, 0, 0, 0);
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(requireContext());
+        LinearLayout table = new LinearLayout(requireContext());
+        table.setOrientation(LinearLayout.VERTICAL);
+        hs.addView(table);
+        LinearLayout header = tableRow(0);
+        header.addView(cell("", 44, true));
+        header.addView(cell("Event", 44, true));
+        header.addView(cell("Single", 92, true));
+        header.addView(cell("Average", 92, true));
+        header.addView(cell("Championship", 220, true));
+        table.addView(header);
+        for (int k = 0; k < rows.size(); k++) {
+            JSONObject r = rows.get(k);
+            String ev = r.optString("event_id");
+            LinearLayout line = tableRow(k % 2 == 0 ? 2 : 3);
+            line.addView(iconBox(ui.medalIcon(r.optInt("pos"), 24), 44));
+            line.addView(iconBox(ui.eventIcon(ev, 22, ui.safe), 44));
+            line.addView(cell(WcaFormat.formatResult(r.optLong("best"), ev, false), 92, true));
+            line.addView(cell(r.optLong("average") > 0 ? WcaFormat.formatResult(r.optLong("average"), ev, true) : "", 92, true));
+            line.addView(compLink(r.optString("competition_id"), 220));
+            table.addView(line);
+        }
+        card.addView(hs);
+        body.addView(card, ui.matchWrap(0, 4, 0, 4));
+        body.addView(ui.text("Championships are recognised by the competition name.", 12, false, 0.7f),
+                ui.matchWrap(4, 2, 4, 4));
     }
 
     private static final int W_COMP = 190, W_ROUND = 112, W_PLACE = 56, W_SINGLE = 100, W_AVG = 100, W_SOLVES = 290;
@@ -898,7 +1136,7 @@ public class WcaResultsFragment extends Fragment {
 
         LinearLayout evRow = tableRow(1);
         TextView evName = ui.text(WcaFormat.eventName(historyEvent), 14, true, 1f);
-        ui.setEventIcon(evName, historyEvent, 20, ui.text);
+        ui.setEventIcon(evName, historyEvent, 20, ui.safe);
         evRow.addView(evName);
         table.addView(evRow);
 
@@ -969,7 +1207,7 @@ public class WcaResultsFragment extends Fragment {
 
     private View resultCell(String value, String tag, int widthDp) {
         if (value.isEmpty()) return cell("", widthDp, false);
-        LinearLayout f = ui.resultCell("", value, tag, 14, true);
+        LinearLayout f = ui.resultCell("", value, tag, 14, true, true);
         f.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(widthDp), ViewGroup.LayoutParams.WRAP_CONTENT));
         return f;
     }

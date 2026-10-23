@@ -187,23 +187,79 @@ public final class WcaUi {
         return sb.length() == 0 ? "?" : sb.toString();
     }
 
-    /** A round profile picture. Shows the person's initials until (and unless) the picture loads. */
+    /** A round profile picture. Shows a blank silhouette (like Facebook) until, and unless, the picture loads. */
     public android.widget.FrameLayout avatar(String name, String url, int sizeDp) {
         android.widget.FrameLayout f = new android.widget.FrameLayout(ctx);
-        TextView t = new TextView(ctx);
-        t.setText(initials(name));
-        t.setGravity(android.view.Gravity.CENTER);
-        t.setTextColor(safe);
-        t.setTextSize(sizeDp * 0.34f);
-        t.setTypeface(t.getTypeface(), android.graphics.Typeface.BOLD);
+        ImageView t = new ImageView(ctx);
+        t.setScaleType(ImageView.ScaleType.FIT_END);
+        t.setImageDrawable(tinted(R.drawable.ic_wca_person, sizeDp, 0xFF8A8D91));
+        t.setPadding(dp(sizeDp * 0.12f), dp(sizeDp * 0.12f), dp(sizeDp * 0.12f), 0);
         android.graphics.drawable.GradientDrawable oval = new android.graphics.drawable.GradientDrawable();
         oval.setShape(android.graphics.drawable.GradientDrawable.OVAL);
-        oval.setColor(highlight);
+        oval.setColor(0xFFDADDE1);
         t.setBackground(oval);
+        t.setClipToOutline(true);
+        t.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
         f.addView(t, new android.widget.FrameLayout.LayoutParams(dp(sizeDp), dp(sizeDp)));
         f.setTag(Integer.valueOf(sizeDp));
         setAvatarUrl(f, url);
         return f;
+    }
+
+    /** Tapping the picture opens the whole picture, full screen. Does nothing without a real picture. */
+    public void makeZoomable(android.widget.FrameLayout f, final String fullUrl) {
+        if (fullUrl == null || fullUrl.isEmpty()) return;
+        f.setOnClickListener(v -> {
+            final Dialog d = new Dialog(ctx, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+            ImageView iv = new ImageView(ctx);
+            iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            iv.setBackgroundColor(0xE6000000);
+            iv.setOnClickListener(x -> d.dismiss());
+            try {
+                com.bumptech.glide.Glide.with(iv).load(fullUrl).into(iv);
+            } catch (Exception ignored) {
+            }
+            d.setContentView(iv);
+            d.show();
+        });
+    }
+
+    // ---------------------------------------------------------------- medals and record chips
+
+    public static int medalColor(int place) {
+        return place == 1 ? 0xFFFFC107 : place == 2 ? 0xFFB0BEC5 : 0xFFCD7F32;
+    }
+
+    public Drawable medalIcon(int place, int sizeDp) {
+        return tinted(R.drawable.ic_wca_medal, sizeDp, medalColor(place));
+    }
+
+    /** A medal symbol followed by a count, e.g. a gold medal and 12. */
+    public View medalCount(int place, int count, float sp) {
+        LinearLayout l = new LinearLayout(ctx);
+        l.setOrientation(LinearLayout.HORIZONTAL);
+        l.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView iv = new ImageView(ctx);
+        iv.setImageDrawable(medalIcon(place, 22));
+        l.addView(iv, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        TextView t = text(String.valueOf(count), sp, true, 1f);
+        t.setTextColor(safe);
+        t.setPadding(dp(3), 0, dp(10), 0);
+        l.addView(t);
+        return l;
+    }
+
+    /** A record badge (WR, CR, NR) followed by a count. */
+    public View recordCount(String tag, int count, float sp) {
+        LinearLayout l = new LinearLayout(ctx);
+        l.setOrientation(LinearLayout.HORIZONTAL);
+        l.setGravity(Gravity.CENTER_VERTICAL);
+        l.addView(badge(tag));
+        TextView t = text(String.valueOf(count), sp, true, 1f);
+        t.setTextColor(safe);
+        t.setPadding(dp(4), 0, dp(10), 0);
+        l.addView(t);
+        return l;
     }
 
     public void setAvatarUrl(android.widget.FrameLayout f, String url) {
@@ -256,12 +312,17 @@ public final class WcaUi {
      * slot, so it never covers a digit and the numbers still line up between rows.
      */
     public LinearLayout resultCell(String label, String value, String tag, float sp, boolean bold) {
+        return resultCell(label, value, tag, sp, bold, false);
+    }
+
+    /** Same, but start-aligned (for table columns whose header is also start-aligned). */
+    public LinearLayout resultCell(String label, String value, String tag, float sp, boolean bold, boolean start) {
         LinearLayout f = new LinearLayout(ctx);
         f.setOrientation(LinearLayout.HORIZONTAL);
-        f.setGravity(Gravity.END);
+        f.setGravity(start ? (Gravity.START | Gravity.CENTER_VERTICAL) : Gravity.END);
         TextView t = text(label.isEmpty() ? value : label + " " + value, sp, bold, 1f);
-        t.setGravity(Gravity.END);
-        t.setPadding(0, dp(7), 0, 0);
+        t.setGravity(start ? Gravity.START : Gravity.END);
+        t.setPadding(0, start ? 0 : dp(7), 0, 0);
         boolean has = tag != null && !tag.isEmpty();
         if (has) t.setTextColor(valueColor(tag.toUpperCase(java.util.Locale.US)));
         f.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -269,7 +330,8 @@ public final class WcaUi {
         FrameLayout slot = new FrameLayout(ctx);
         if (has) {
             FrameLayout.LayoutParams bp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    (start ? Gravity.CENTER_VERTICAL : Gravity.TOP) | Gravity.START);
             bp.leftMargin = dp(2);
             slot.addView(badge(tag), bp);
         }

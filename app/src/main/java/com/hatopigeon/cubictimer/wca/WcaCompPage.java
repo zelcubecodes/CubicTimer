@@ -301,7 +301,8 @@ public class WcaCompPage {
 
     private static String stripMarkdown(String s) {
         if (s == null) return "";
-        String t = s.replaceAll("\\[([^\\]]+)\\]\\([^)]*\\)", "$1");
+        String t = s.replaceAll("!\\[[^\\]]*\\]\\([^)]*\\)", "").replaceAll("<[^>]+>", "");
+        t = t.replaceAll("\\[([^\\]]+)\\]\\([^)]*\\)", "$1");
         t = t.replaceAll("[*_`>#]", "").replaceAll("\r", "").replaceAll("\n{3,}", "\n\n");
         return t.trim();
     }
@@ -353,30 +354,93 @@ public class WcaCompPage {
 
     // ---------------------------------------------------------------- loading
 
+    private boolean infoLoading;
+    private final List<Done> infoWaiters = new ArrayList<>();
+
+    private void finishInfo(String err) {
+        infoLoading = false;
+        List<Done> w = new ArrayList<>(infoWaiters);
+        infoWaiters.clear();
+        for (Done d : w) d.run(err);
+    }
+
     private void ensureInfo(final Done done) {
         if (INFO.containsKey(compId)) {
             done.run(null);
             return;
         }
+        infoWaiters.add(done);
+        if (infoLoading) return;
+        infoLoading = true;
         WcaHttp.get(WCA + "/competitions/" + Uri.encode(compId), new WcaHttp.Callback() {
             @Override
             public void onSuccess(String body) {
                 try {
                     INFO.put(compId, new JSONObject(body));
-                    done.run(null);
+                    finishInfo(null);
                 } catch (Exception e) {
-                    done.run("Could not read the competition details");
+                    finishInfo("Could not read the competition details");
                 }
             }
 
             @Override
             public void onError(String message) {
-                done.run(WcaHttp.describe(ctx, message));
+                finishInfo(WcaHttp.describe(ctx, message));
             }
         });
     }
 
+    /** Old competitions have no registration list, so the competitors are the people with results. */
     private void ensureWcif(final Done done) {
+        ensureWcifReal(err -> {
+            Wcif w = WCIF.get(compId);
+            if (err == null && w != null && !w.persons.isEmpty()) {
+                done.run(null);
+                return;
+            }
+            ensureResults(err2 -> {
+                JSONArray arr = RESULTS.get(compId);
+                if (err2 != null || arr == null || arr.length() == 0) {
+                    done.run(err != null ? err : err2);
+                    return;
+                }
+                Wcif f = w != null ? w : new Wcif();
+                Map<String, Per> byKey = new java.util.LinkedHashMap<>();
+                Set<String> evSet = new HashSet<>();
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject r = arr.optJSONObject(i);
+                    if (r == null) continue;
+                    String wid = r.isNull("wca_id") ? "" : r.optString("wca_id");
+                    String key = wid.isEmpty() ? "n:" + r.optString("name") : wid;
+                    Per per = byKey.get(key);
+                    if (per == null) {
+                        per = new Per();
+                        per.name = r.optString("name");
+                        per.wcaId = wid;
+                        per.iso = WcaFlags.code(r.optString("country_iso2"));
+                        byKey.put(key, per);
+                    }
+                    String ev = r.optString("event_id");
+                    per.events.add(ev);
+                    evSet.add(ev);
+                }
+                f.persons = new ArrayList<>(byKey.values());
+                if (f.events.isEmpty()) {
+                    List<String> ids = new ArrayList<>(evSet);
+                    Collections.sort(ids, (x, y) -> WcaFormat.eventOrder(x) - WcaFormat.eventOrder(y));
+                    for (String id : ids) {
+                        Ev e = new Ev();
+                        e.id = id;
+                        f.events.add(e);
+                    }
+                }
+                WCIF.put(compId, f);
+                done.run(null);
+            });
+        });
+    }
+
+    private void ensureWcifReal(final Done done) {
         if (WCIF.containsKey(compId)) {
             done.run(null);
             return;
@@ -609,12 +673,12 @@ public class WcaCompPage {
     // ---------------------------------------------------------------- Info tab
 
     private void renderInfo() {
-        final int my = token;
+        final int my = tab;
         JSONObject cached = INFO.get(compId);
         if (cached == null) {
             loadingText("Loading competition...");
             ensureInfo(err -> {
-                if (my != token) return;
+                if (my != tab) return;
                 if (err != null) errorBox(err);
                 else renderInfo();
             });
@@ -690,7 +754,7 @@ public class WcaCompPage {
 
         // The competitor count comes from the competitor list, which loads a little later.
         ensureWcif(err -> {
-            if (err != null || my != token) return;
+            if (err != null || my != tab) return;
             Wcif w = WCIF.get(compId);
             if (w == null) return;
             Set<String> countries = new HashSet<>();
@@ -716,11 +780,36 @@ public class WcaCompPage {
         private final List<Drawable> icons;
         private final int slot, size;
 
+        interface IconTap { void tapped(int index); }
+
+        private IconTap tap;
+
         IconStrip(Context c, List<Drawable> icons, int slotPx, int sizePx) {
             super(c);
             this.icons = icons;
             this.slot = slotPx;
             this.size = sizePx;
+        }
+
+        /** Tapping an icon reports its index (used by the header icons to open a psych sheet). */
+        void onIconTap(IconTap t) {
+            this.tap = t;
+            setClickable(t != null);
+        }
+
+        @Override
+        public boolean onTouchEvent(android.view.MotionEvent e) {
+            if (tap == null) return super.onTouchEvent(e);
+            if (e.getAction() == android.view.MotionEvent.ACTION_DOWN) return true;
+            if (e.getAction() == android.view.MotionEvent.ACTION_UP) {
+                int i = (int) (e.getX() / slot);
+                if (i >= 0 && i < icons.size()) {
+                    performClick();
+                    tap.tapped(i);
+                }
+                return true;
+            }
+            return super.onTouchEvent(e);
         }
 
         @Override
@@ -741,13 +830,41 @@ public class WcaCompPage {
         }
     }
 
+    /** One number per competition event, centred in the same slots as the icon strip. */
+    private static class CountStrip extends View {
+        private final int[] counts;
+        private final int slot;
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+
+        CountStrip(Context c, int[] counts, int slotPx, int color, float textPx) {
+            super(c);
+            this.counts = counts;
+            this.slot = slotPx;
+            paint.setColor(color);
+            paint.setTextSize(textPx);
+            paint.setFakeBoldText(true);
+            paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+        }
+
+        @Override
+        protected void onMeasure(int w, int h) {
+            setMeasuredDimension(slot * counts.length, slot);
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            float y = slot / 2f - (paint.descent() + paint.ascent()) / 2f;
+            for (int i = 0; i < counts.length; i++) canvas.drawText(String.valueOf(counts[i]), i * slot + slot / 2f, y, paint);
+        }
+    }
+
     private void renderCompetitors() {
-        final int my = token;
+        final int my = tab;
         final Wcif w = WCIF.get(compId);
         if (w == null) {
             loadingText("Loading competitors...");
             ensureWcif(err -> {
-                if (my != token) return;
+                if (my != tab) return;
                 if (err != null) errorBox(err);
                 else renderCompetitors();
             });
@@ -823,21 +940,29 @@ public class WcaCompPage {
         if (opener != null && !p.wcaId.isEmpty()) opener.open(p.wcaId);
     }
 
-    private void renderCompetitorTable(Wcif w) {
+    private void renderCompetitorTable(final Wcif w) {
         List<Per> list = new ArrayList<>(w.persons);
         Collections.sort(list, (a, b) -> a.name.compareToIgnoreCase(b.name));
-        content.addView(ui.text(peopleLine(list) + ". Tap an event above for its psych sheet.",
+        content.addView(ui.text(peopleLine(list) + ". Tap an event icon for its psych sheet.",
                 13, false, 0.85f), ui.matchWrap(4, 0, 4, 6));
 
-        final int slot = ui.dp(26), size = ui.dp(20);
+        final int slot = ui.dp(32), size = ui.dp(20);
         LinearLayout table = new LinearLayout(ctx);
         table.setOrientation(LinearLayout.VERTICAL);
         LinearLayout header = tableRow(false, true);
         header.addView(cell("Name \u25B2", 190, true, Gravity.START));
         header.addView(cell("Representing", 150, true, Gravity.START));
+        header.addView(cell("Events", 64, true, Gravity.CENTER));
         List<Drawable> all = new ArrayList<>();
         for (Ev e : w.events) all.add(icon(e.id));
-        header.addView(new IconStrip(ctx, all, slot, size));
+        IconStrip headStrip = new IconStrip(ctx, all, slot, size);
+        headStrip.onIconTap(i -> {
+            selEvent = w.events.get(i).id;
+            basisTouched = false;
+            shown = ROWS_PER_PAGE;
+            renderCompetitors();
+        });
+        header.addView(headStrip);
         table.addView(header);
 
         int limit = Math.min(shown, list.size());
@@ -848,13 +973,41 @@ public class WcaCompPage {
             if (!p.wcaId.isEmpty()) nm.setTextColor(LINK);
             row.addView(nm);
             row.addView(cell(withFlag(countryName(p.iso), p.iso), 150, false, Gravity.START));
+            int mineCount = 0;
             List<Drawable> mine = new ArrayList<>();
-            for (Ev e : w.events) mine.add(p.events.contains(e.id) ? icon(e.id) : null);
+            for (Ev e : w.events) {
+                boolean in = p.events.contains(e.id);
+                if (in) mineCount++;
+                mine.add(in ? icon(e.id) : null);
+            }
+            row.addView(cell(String.valueOf(mineCount), 64, false, Gravity.CENTER));
             row.addView(new IconStrip(ctx, mine, slot, size));
             if (!p.wcaId.isEmpty()) row.setOnClickListener(v -> openPerson(p));
             markStarred(row, p);
             table.addView(row);
         }
+
+        // Totals for everyone, not only the rows shown so far.
+        Set<String> regions = new HashSet<>();
+        int[] perEvent = new int[w.events.size()];
+        int totalEntries = 0;
+        for (Per p : list) {
+            if (!p.iso.isEmpty()) regions.add(p.iso);
+            for (int k = 0; k < w.events.size(); k++) {
+                if (p.events.contains(w.events.get(k).id)) {
+                    perEvent[k]++;
+                    totalEntries++;
+                }
+            }
+        }
+        LinearLayout foot = tableRow(false, true);
+        foot.setBackgroundColor(ColorUtils.blendARGB(ui.itemBg, ui.safe, 0.14f));
+        foot.addView(cell(list.size() + (list.size() == 1 ? " competitor" : " competitors"), 190, true, Gravity.START));
+        foot.addView(cell(regions.size() + (regions.size() == 1 ? " region" : " regions"), 150, true, Gravity.START));
+        foot.addView(cell(String.valueOf(totalEntries), 64, true, Gravity.CENTER));
+        foot.addView(new CountStrip(ctx, perEvent, slot, ui.safe, ui.dp(13)));
+        table.addView(foot);
+
         content.addView(tableCard(table), ui.matchWrap(0, 4, 0, 4));
         addShowMore(list.size(), limit, this::renderCompetitors);
     }
@@ -1016,12 +1169,12 @@ public class WcaCompPage {
     }
 
     private void renderEvents() {
-        final int my = token;
+        final int my = tab;
         final Wcif w = WCIF.get(compId);
         if (w == null) {
             loadingText("Loading events...");
             ensureWcif(err -> {
-                if (my != token) return;
+                if (my != tab) return;
                 if (err != null) errorBox(err);
                 else renderEvents();
             });
@@ -1176,12 +1329,12 @@ public class WcaCompPage {
     }
 
     private void renderSchedule() {
-        final int my = token;
+        final int my = tab;
         final Wcif w = WCIF.get(compId);
         if (w == null) {
             loadingText("Loading schedule...");
             ensureWcif(err -> {
-                if (my != token) return;
+                if (my != tab) return;
                 if (err != null) errorBox(err);
                 else renderSchedule();
             });
@@ -1480,12 +1633,12 @@ public class WcaCompPage {
     }
 
     private void renderResultsTab() {
-        final int my = token;
+        final int my = tab;
         JSONArray all = RESULTS.get(compId);
         if (all == null) {
             loadingText("Loading results...");
             ensureResults(err -> {
-                if (my != token) return;
+                if (my != tab) return;
                 if (err != null) errorBox(err);
                 else renderResultsTab();
             });
@@ -1655,12 +1808,12 @@ public class WcaCompPage {
     }
 
     private void renderPodiums() {
-        final int my = token;
+        final int my = tab;
         JSONArray all = RESULTS.get(compId);
         if (all == null) {
             loadingText("Loading podiums...");
             ensureResults(err -> {
-                if (my != token) return;
+                if (my != tab) return;
                 if (err != null) errorBox(err);
                 else renderPodiums();
             });

@@ -1179,7 +1179,7 @@ public class WcaLiveFragment extends Fragment {
         for (int i = 0; i < events.size(); i++) {
             final int idx = i;
             TextView p = ui.pill(WcaFormat.eventName(events.get(i).id), i == eventIndex);
-            ui.setEventIcon(p, events.get(i).id, 16, ui.text);
+            ui.setEventIcon(p, events.get(i).id, 16, ui.safe);
             p.setOnClickListener(v -> {
                 eventIndex = idx;
                 roundIndex = Math.max(0, latestRoundWithResults(events.get(idx)));
@@ -1432,7 +1432,7 @@ public class WcaLiveFragment extends Fragment {
                     any = true;
                     if (table == null) {
                         TextView evTitle = ui.text(WcaFormat.eventName(ev.id), 16, true, 1f);
-                        ui.setEventIcon(evTitle, ev.id, 20, ui.text);
+                        ui.setEventIcon(evTitle, ev.id, 20, ui.safe);
                         box.addView(evTitle, ui.matchWrap(0, 12, 0, 6));
                         table = new LinearLayout(requireContext());
                         table.setOrientation(LinearLayout.VERTICAL);
@@ -1565,7 +1565,7 @@ public class WcaLiveFragment extends Fragment {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(18));
         TextView sub = ui.text(WcaFormat.eventName(ev.id) + "  \u00B7  " + roundLabel(ev, rd), 14, false, 0.85f);
-        ui.setEventIcon(sub, ev.id, 18, ui.text);
+        ui.setEventIcon(sub, ev.id, 18, ui.safe);
         box.addView(sub, ui.matchWrap(0, 0, 0, 10));
 
         boolean mbf = "333mbf".equals(ev.id);
