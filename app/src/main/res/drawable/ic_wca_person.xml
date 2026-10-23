@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- blank profile picture: a head and shoulders, like the default on Facebook -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M24,10 A8.5,8.5 0 1,0 24,27 A8.5,8.5 0 1,0 24,10 Z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,48 C6,35 14,30 24,30 C34,30 42,35 42,48 Z" />
+</vector>
