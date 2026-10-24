@@ -778,9 +778,31 @@ public class TimerFragmentMain extends BaseFragment implements DialogListenerMes
             return;
         }
 
-        // The WCA pages use the whole screen, so the timer header is hidden on them.
-        mToolbar.setVisibility((pageNum == RESULTS_PAGE || pageNum == LIVE_PAGE)
-                ? View.GONE : View.VISIBLE);
+        // The top bar stays on every page. The WCA pages swap the puzzle picker for their own title and
+        // shortcuts, and keep the settings button.
+        boolean wca = pageNum == RESULTS_PAGE || pageNum == LIVE_PAGE;
+        mToolbar.setVisibility(View.VISIBLE);
+        TextView wcaTitle = mToolbar.findViewById(R.id.wcaTitle);
+        View recordsBtn = mToolbar.findViewById(R.id.nav_button_records);
+        View rankingsBtn = mToolbar.findViewById(R.id.nav_button_rankings);
+        if (wcaTitle != null && recordsBtn != null && rankingsBtn != null) {
+            wcaTitle.setVisibility(wca ? View.VISIBLE : View.GONE);
+            recordsBtn.setVisibility(wca ? View.VISIBLE : View.GONE);
+            rankingsBtn.setVisibility(wca ? View.VISIBLE : View.GONE);
+            puzzleSpinnerLayout.setVisibility(wca ? View.GONE : View.VISIBLE);
+            navButtonCategory.setVisibility(wca ? View.GONE : View.VISIBLE);
+            if (wca) {
+                wcaTitle.setText(pageNum == RESULTS_PAGE ? "WCA Results" : "WCA Live");
+                recordsBtn.setOnClickListener(v -> startActivity(new android.content.Intent(requireContext(),
+                        com.hatopigeon.cubictimer.activity.RecordsActivity.class)));
+                rankingsBtn.setOnClickListener(v -> startActivity(new android.content.Intent(requireContext(),
+                        com.hatopigeon.cubictimer.activity.RankingsActivity.class)));
+                if (navButtonHistory != null) navButtonHistory.setVisibility(View.GONE);
+                if (navButtonBluetooth != null) navButtonBluetooth.setVisibility(View.GONE);
+                if (puzzleNumber != null) puzzleNumber.setVisibility(View.GONE);
+                return;
+            }
+        }
 
         switch (pageNum) {
             case TIMER_PAGE:
