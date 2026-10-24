@@ -100,6 +100,7 @@ public class WcaLiveFragment extends Fragment {
     private long listFetchedAt = 0L;
 
     private TextView detailTitle;
+    private ImageView detailStar;
     private TextView detailStatus;
     private LinearLayout eventRow;
     private LinearLayout roundRow;
@@ -904,6 +905,14 @@ public class WcaLiveFragment extends Fragment {
         detailTitle = ui.text("", 18, true, 1f);
         header.addView(detailTitle, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
         ((LinearLayout.LayoutParams) detailTitle.getLayoutParams()).weight = 1f;
+        detailStar = ui.iconButton(R.drawable.ic_wca_star_outline, 24, ui.text);
+        detailStar.setContentDescription("Star");
+        detailStar.setOnClickListener(v -> {
+            if (currentComp == null) return;
+            store.toggleFavoriteComp(currentComp.wcaId, currentComp.name);
+            updateDetailStar();
+        });
+        header.addView(detailStar);
         ImageView refresh = ui.iconButton(R.drawable.ic_wca_refresh, 24, ui.text);
         refresh.setContentDescription("Refresh");
         refresh.setOnClickListener(v -> {
@@ -1016,10 +1025,17 @@ public class WcaLiveFragment extends Fragment {
         listPage.setVisibility(View.GONE);
         detailPage.setVisibility(View.VISIBLE);
         detailTitle.setText(c.name);
+        updateDetailStar();
         updateBack();
         renderEvents();
         renderResults();
         fetchResults();
+    }
+
+    private void updateDetailStar() {
+        if (detailStar == null || currentComp == null) return;
+        detailStar.setImageDrawable(ui.tinted(store.isFavoriteComp(currentComp.wcaId)
+                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.text));
     }
 
     private void closeDetail() {

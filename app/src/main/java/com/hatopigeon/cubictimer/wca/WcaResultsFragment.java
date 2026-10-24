@@ -1362,15 +1362,46 @@ public class WcaResultsFragment extends Fragment {
     private void showCompetitionPage(final String cid, final String name) {
         body.removeAllViews();
         status.setText("");
-        TextView back = ui.pill("\u2190 Back", false);
+        footer.setText("");
+        // Same header and tabs as the competition in WCA Live: back, name, star, refresh, then two tabs.
+        LinearLayout header = new LinearLayout(requireContext());
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back = ui.text("\u2190", 26, true, 1f);
+        back.setPadding(ui.dp(8), ui.dp(4), ui.dp(16), ui.dp(4));
         back.setOnClickListener(v -> render());
-        body.addView(back, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 4, 0, 6));
-        body.addView(ui.text(name, 20, true, 1f), ui.matchWrap(4, 0, 4, 4));
+        header.addView(back);
+        TextView title = ui.text(name, 18, true, 1f);
+        header.addView(title, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        ((LinearLayout.LayoutParams) title.getLayoutParams()).weight = 1f;
+        final android.widget.ImageView star = ui.iconButton(store.isFavoriteComp(cid)
+                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.text);
+        star.setOnClickListener(v -> {
+            store.toggleFavoriteComp(cid, name);
+            star.setImageDrawable(ui.tinted(store.isFavoriteComp(cid)
+                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.text));
+        });
+        header.addView(star);
+        final WcaCompPage[] holder = new WcaCompPage[1];
+        android.widget.ImageView refresh = ui.iconButton(R.drawable.ic_wca_refresh, 24, ui.text);
+        refresh.setOnClickListener(v -> {
+            if (holder[0] != null) holder[0].reload();
+        });
+        header.addView(refresh);
+        body.addView(header, ui.matchWrap(0, 0, 0, 6));
+        LinearLayout modeRow = new LinearLayout(requireContext());
+        modeRow.setOrientation(LinearLayout.HORIZONTAL);
+        TextView live = ui.pill("Live results", false);
+        live.setOnClickListener(v -> openCompetition(cid, name));
+        modeRow.addView(live, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        modeRow.addView(ui.pill("Competition", true));
+        body.addView(modeRow, ui.matchWrap(0, 0, 0, 6));
         WcaCompPage page = new WcaCompPage(requireContext(), cid, name, id -> {
             setQuery(id);
             loadPerson(id);
             scroll.smoothScrollTo(0, 0);
-        }, () -> openCompetition(cid, name));
+        }, null);
+        holder[0] = page;
         body.addView(page.view(), ui.matchWrap(0, 0, 0, 0));
         scroll.post(() -> scroll.scrollTo(0, 0));
     }

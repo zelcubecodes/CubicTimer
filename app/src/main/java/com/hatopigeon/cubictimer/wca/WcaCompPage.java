@@ -163,14 +163,6 @@ public class WcaCompPage {
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
         actions.addView(web, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        final android.widget.ImageView star = ui.iconButton(store.isFavoriteComp(compId)
-                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.text);
-        star.setOnClickListener(v -> {
-            store.toggleFavoriteComp(compId, compName);
-            star.setImageDrawable(ui.tinted(store.isFavoriteComp(compId)
-                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.text));
-        });
-        actions.addView(star);
         HorizontalScrollView actionScroll = new HorizontalScrollView(ctx);
         actionScroll.setHorizontalScrollBarEnabled(false);
         actionScroll.addView(actions);
@@ -307,6 +299,15 @@ public class WcaCompPage {
     private String withFlag(String name, String iso) {
         String f = WcaFlags.emoji(iso);
         return (f.isEmpty() ? "" : f + " ") + name;
+    }
+
+    /** The first picture in a competition's about text (markdown image or html img), or null. */
+    private static String firstImage(String s) {
+        if (s == null) return null;
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("!\\[[^\\]]*\\]\\((https?://[^)\\s]+)[^)]*\\)").matcher(s);
+        if (m.find()) return m.group(1);
+        m = java.util.regex.Pattern.compile("<img[^>]+src=[\"'](https?://[^\"']+)").matcher(s);
+        return m.find() ? m.group(1) : null;
     }
 
     private static String stripMarkdown(String s) {
@@ -695,6 +696,20 @@ public class WcaCompPage {
             return;
         }
         JSONObject c = cached;
+        final String bannerUrl = firstImage(c.optString("information"));
+        if (bannerUrl != null) {
+            android.widget.ImageView banner = new android.widget.ImageView(ctx);
+            banner.setAdjustViewBounds(true);
+            banner.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+            banner.setBackground(ui.rounded(ui.itemBg, ui.dp(12)));
+            banner.setClipToOutline(true);
+            banner.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+            try {
+                com.bumptech.glide.Glide.with(banner).load(bannerUrl).into(banner);
+            } catch (Exception ignored) {
+            }
+            content.addView(banner, ui.matchWrap(0, 0, 0, 8));
+        }
         final LinearLayout card = ui.card(false);
         String iso = c.optString("country_iso2");
         card.addView(tv(withFlag(c.optString("name", compName), iso), 20, true, 1f));
@@ -1531,6 +1546,7 @@ public class WcaCompPage {
         CalView cal = new CalView(ctx, ui.dp(46), ui.dp(64), startHour, endHour, ui.safe, ui.dp(11));
 
         int i = 0;
+        int maxCols = 1;
         while (i < list.size()) {
             // A cluster is a run of activities that overlap in time; they share the width side by side.
             List<Act> cluster = new ArrayList<>();
@@ -1577,11 +1593,17 @@ public class WcaCompPage {
                 else t.setText(when + room + "\n" + a.name);
                 cal.addBlock(t, minutesOfDay(a.start, a.tz), dur, colOf[k], colEnds.size());
             }
+            maxCols = Math.max(maxCols, colEnds.size());
             i = j;
         }
         LinearLayout card = ui.card(false);
         card.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
-        card.addView(cal, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+        HorizontalScrollView calScroll = new HorizontalScrollView(ctx);
+        calScroll.setFillViewport(true);
+        calScroll.setHorizontalScrollBarEnabled(false);
+        int calWidth = maxCols >= 3 ? ui.dp(46) + maxCols * ui.dp(130) : ViewGroup.LayoutParams.MATCH_PARENT;
+        calScroll.addView(cal, new ViewGroup.LayoutParams(calWidth, ViewGroup.LayoutParams.WRAP_CONTENT));
+        card.addView(calScroll, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         content.addView(card, ui.matchWrap(0, 0, 0, 4));
     }
