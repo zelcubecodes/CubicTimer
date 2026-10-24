@@ -1,3 +1,28 @@
+# Ztimer
+
+Ztimer is an Android speedcubing app made by Zel (ZelCubes). It adds WCA Live, WCA Results, Records and competition pages to a full-featured puzzle timer.
+
+## Credits
+
+Ztimer would not exist without the work of others. Thank you!
+
+- **Cubic Timer** by hato-ya and contributors, https://github.com/hato-ya/CubicTimer (GPL v3). Ztimer is a fork of it.
+- **Twisty Timer** by Ariovaldo Neto (Ari Neto) and contributors, https://github.com/aricneto/TwistyTimer (GPL v3). Cubic Timer is a fork of it.
+- **flag-icons** by Panayiotis Lipiridis, https://github.com/lipis/flag-icons (MIT). All country flag pictures.
+- **World Cube Association**, https://www.worldcubeassociation.org: competition, results, rankings and records data (WCA website, public results export and API).
+- **WCA Live**, https://live.worldcubeassociation.org (https://github.com/thewca/wca-live): live competition results.
+- **Competitor Groups** by Jonatan Kłosko, https://github.com/jonatanklosko/competitor-groups: competition schedule and groups.
+- **TNoodle** by the World Cube Association, https://github.com/thewca/tnoodle-lib: scrambles.
+- Everything listed in the app under About and feedback > License (MPAndroidChart, Glide, Butterknife, material-dialogs, csTimer, FTODrawer, and more).
+
+## License
+
+GNU General Public License v3.0, see LICENSE.txt. This is a modified version of Cubic Timer.
+
+---
+
+# Original Cubic Timer README
+
 Cubic Timer is a fork project from Twisty Timer by Ari Neto that support external stack timer.
 I really appreciate Ariovaldo Neto that making original Twisty Timer.
 https://github.com/aricneto/TwistyTimer
