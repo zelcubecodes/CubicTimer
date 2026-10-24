@@ -162,7 +162,7 @@ public class RecordsActivity extends AppCompatActivity {
     private String currentNote() {
         try {
             return mData.getJSONObject("events").getJSONObject(mEventIds.get(mEventIndex))
-                    .optString("note", "");
+                    .optString("note", "").replace(" The WCA announced it in June 2026.", "");
         } catch (Exception e) {
             return "";
         }
@@ -392,7 +392,7 @@ public class RecordsActivity extends AppCompatActivity {
                 name.setGravity(Gravity.CENTER_VERTICAL);
             }
             card.addView(name);
-            String note = ev.optString("note", "");
+            String note = ev.optString("note", "").replace(" The WCA announced it in June 2026.", "");
             if (!note.isEmpty()) {
                 card.addView(text(note, 13, false, 0.75f));
             } else {
