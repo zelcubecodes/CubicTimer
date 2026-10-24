@@ -98,7 +98,7 @@ class ThemeListAdapter extends RecyclerView.Adapter<ThemeListAdapter.CardViewHol
     private int cornerRadius;
     private int strokeWidth;
 
-    String currentTheme = Prefs.getString(R.string.pk_theme, "yellow");
+    String currentTheme = Prefs.getString(R.string.pk_theme, "pixie_falls");
 
     static class CardViewHolder extends RecyclerView.ViewHolder {
         View view;
