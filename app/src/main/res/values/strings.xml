@@ -242,7 +242,7 @@
 
     <string name="panel_swipe_down_to_hide">Swipe down to hide</string>
 
-    <string name="permission_denied_explanation">For the export/import feature to work, you need to grant Cubic Timer permission to access your external storage.</string>
+    <string name="permission_denied_explanation">For the export/import feature to work, you need to grant Ztimer permission to access your external storage.</string>
 
     <string name="personal_best_message">Congratulations!\nYou\'ve just beaten your previous personal best by %1$s</string>
     <string name="personal_worst_message">Congratulations!\nThat\'s the worst solve you\'ve done so far, beating your record by %1$s</string>
@@ -581,4 +581,6 @@
     <string name="pref_summary_wca_show_attempts">Show every solve under each competitor in a round</string>
     <string name="pref_title_wca_auto_refresh">Auto-refresh WCA Live</string>
     <string name="pref_summary_wca_auto_refresh">Refresh results every 30 seconds while viewing a round</string>
+
+    <string name="about_creator" translatable="false">Based on Cubic Timer by hato-ya and Twisty Timer by Ari Neto\nFlags by flag-icons (Panayiotis Lipiridis, MIT)\nWCA data by the World Cube Association</string>
 </resources>
