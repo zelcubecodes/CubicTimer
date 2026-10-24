@@ -157,5 +157,49 @@
             android:tint="?colorActionBarText"
             app:srcCompat="@drawable/ic_outline_bluetooth_24px" />
 
+        <TextView
+            android:id="@+id/wcaTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_centerHorizontal="true"
+            android:gravity="center"
+            android:text="WCA"
+            android:textColor="?colorActionBarText"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <ImageView
+            android:id="@+id/nav_button_records"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentRight="true"
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="8dp"
+            android:layout_marginRight="8dp"
+            android:background="?selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="8dp"
+            android:tint="?colorActionBarText"
+            android:visibility="gone"
+            app:srcCompat="@drawable/ic_wca_records_24" />
+
+        <ImageView
+            android:id="@+id/nav_button_rankings"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerVertical="true"
+            android:layout_marginRight="4dp"
+            android:layout_toLeftOf="@id/nav_button_records"
+            android:background="?selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:padding="8dp"
+            android:tint="?colorActionBarText"
+            android:visibility="gone"
+            app:srcCompat="@drawable/ic_wca_rankings_24" />
+
     </RelativeLayout>
 </androidx.cardview.widget.CardView>
