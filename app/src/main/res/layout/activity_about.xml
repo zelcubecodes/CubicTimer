@@ -83,48 +83,12 @@
             android:textSize="12sp"
             tools:text="aricneto" />
 
-        <androidx.appcompat.widget.AppCompatTextView
-            android:id="@+id/rateButton"
+        <TableLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_below="@id/creator"
             android:layout_centerHorizontal="true"
-            android:layout_marginLeft="24dp"
-            android:layout_marginTop="32dp"
-            android:layout_marginRight="24dp"
-            android:background="@drawable/outline_background_card_info"
-            android:drawablePadding="8dp"
-            android:gravity="center"
-            android:padding="8dp"
-            android:text="@string/rate_app"
-            android:textColor="#000"
-            android:textSize="14sp"
-            app:drawableLeftCompat="@drawable/ic_outline_star_border_18px" />
-
-        <androidx.appcompat.widget.AppCompatTextView
-            android:id="@+id/translateButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_below="@id/rateButton"
-            android:layout_centerHorizontal="true"
-            android:layout_marginLeft="24dp"
             android:layout_marginTop="24dp"
-            android:layout_marginRight="24dp"
-            android:layout_marginBottom="24dp"
-            android:background="@drawable/outline_background_card_warn_stroke"
-            android:drawablePadding="8dp"
-            android:gravity="center"
-            android:padding="8dp"
-            android:text="@string/about_translate_title"
-            android:textColor="#000"
-            android:textSize="14sp"
-            app:drawableLeftCompat="@drawable/ic_outline_translate_18px" />
-
-        <TableLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_below="@+id/translateButton"
-            android:layout_centerHorizontal="true"
             android:layout_marginLeft="16dp"
             android:layout_marginRight="16dp"
             android:gravity="center_horizontal"
