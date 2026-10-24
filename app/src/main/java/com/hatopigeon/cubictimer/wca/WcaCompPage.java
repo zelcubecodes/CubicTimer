@@ -1580,7 +1580,7 @@ public class WcaCompPage {
             for (int k = 0; k < cluster.size(); k++) {
                 Act a = cluster.get(k);
                 int dur = (int) Math.max(15, (a.end - a.start) / 60000L);
-                TextView t = new TextView(ctx);
+                TextView t = new com.hatopigeon.cubictimer.wca.FlagTextView(ctx);
                 t.setTextColor(Color.WHITE);
                 t.setTextSize(12);
                 t.setPadding(ui.dp(6), ui.dp(3), ui.dp(4), ui.dp(2));
@@ -1904,7 +1904,7 @@ public class WcaCompPage {
         line.setOrientation(LinearLayout.HORIZONTAL);
         line.setGravity(Gravity.CENTER_VERTICAL);
         int pos = r.optInt("pos");
-        TextView p = new TextView(ctx);
+        TextView p = new com.hatopigeon.cubictimer.wca.FlagTextView(ctx);
         p.setText(String.valueOf(pos));
         p.setTextSize(15);
         p.setTextColor(Color.BLACK);

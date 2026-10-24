@@ -831,7 +831,7 @@ public class WcaLiveFragment extends Fragment {
             LinearLayout row = new LinearLayout(requireContext());
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView tag = new TextView(requireContext());
+            TextView tag = new com.hatopigeon.cubictimer.wca.FlagTextView(requireContext());
             tag.setText(r[0]);
             tag.setTextSize(15);
             tag.setTextColor(android.graphics.Color.BLACK);

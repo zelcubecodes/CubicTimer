@@ -26,7 +26,7 @@ public final class WcaHttp {
 
     private static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(3);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final String USER_AGENT = "ZelCubesTimer/1.0 (Android; open-source speedcubing timer)";
+    private static final String USER_AGENT = "Ztimer/1.0 (Android; open-source speedcubing timer)";
 
     private WcaHttp() {}
 

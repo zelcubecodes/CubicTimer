@@ -68,7 +68,7 @@ public final class WcaUi {
     }
 
     public TextView text(String s, float sp, boolean bold, float alpha) {
-        TextView t = new TextView(ctx);
+        TextView t = new com.hatopigeon.cubictimer.wca.FlagTextView(ctx);
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(text);
@@ -286,7 +286,7 @@ public final class WcaUi {
     }
 
     public TextView badge(String tag) {
-        TextView b = new TextView(ctx);
+        TextView b = new com.hatopigeon.cubictimer.wca.FlagTextView(ctx);
         b.setText(tag);
         b.setTextSize(10);
         b.setTextColor(Color.BLACK);
