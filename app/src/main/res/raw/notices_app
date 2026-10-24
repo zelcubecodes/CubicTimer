@@ -5,6 +5,41 @@
         <name>All relevant licenses can be found on the bottom of this list</name>
     </notice>
     <notice>
+        <name>Ztimer</name>
+        <url>https://github.com/zelcubecodes/CubicTimer</url>
+        <copyright>Copyright (c) 2026 Zel (ZelCubes) - WCA Live, WCA Results, Records and competition pages, GNU General Public License 3.0</copyright>
+    </notice>
+    <notice>
+        <name>Cubic Timer</name>
+        <url>https://github.com/hato-ya/CubicTimer</url>
+        <copyright>Copyright hato-ya and the Cubic Timer contributors - GNU General Public License 3.0. Ztimer is a fork of Cubic Timer.</copyright>
+    </notice>
+    <notice>
+        <name>Twisty Timer</name>
+        <url>https://github.com/aricneto/TwistyTimer</url>
+        <copyright>Copyright Ariovaldo Neto (Ari Neto) and the Twisty Timer contributors - GNU General Public License 3.0. Cubic Timer is a fork of Twisty Timer.</copyright>
+    </notice>
+    <notice>
+        <name>flag-icons</name>
+        <url>https://github.com/lipis/flag-icons</url>
+        <copyright>Copyright (c) 2013 Panayiotis Lipiridis - MIT License. Country flag pictures in WCA Live, WCA Results, Rankings and Records.</copyright>
+    </notice>
+    <notice>
+        <name>World Cube Association</name>
+        <url>https://www.worldcubeassociation.org</url>
+        <copyright>Competition, results, rankings and records data from the WCA website, the WCA public results export and the WCA API. Data belongs to the WCA.</copyright>
+    </notice>
+    <notice>
+        <name>WCA Live</name>
+        <url>https://live.worldcubeassociation.org</url>
+        <copyright>Live competition results from WCA Live by the World Cube Association (source: github.com/thewca/wca-live)</copyright>
+    </notice>
+    <notice>
+        <name>Competitor Groups</name>
+        <url>https://github.com/jonatanklosko/competitor-groups</url>
+        <copyright>Competition schedule and groups ideas from Competitor Groups by Jonatan Kłosko</copyright>
+    </notice>
+    <notice>
         <name>MPAndroidChart</name>
         <url>https://github.com/PhilJay/MPAndroidChart</url>
         <copyright>Copyright 2016 Philipp Jahoda - Apache Software License 2.0</copyright>
