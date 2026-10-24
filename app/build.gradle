@@ -20,12 +20,12 @@ android {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'),
                     'proguard-rules.pro'
-            resValue "string", "app_name", "ZelCubes Timer"
+            resValue "string", "app_name", "Ztimer"
             resValue "string", "file_provider_authority", "com.zelcubes.cubictimer.fileprovider"
         }
         debug {
             applicationIdSuffix ".debug"
-            resValue "string", "app_name", "ZelCubes Timer (Debug)"
+            resValue "string", "app_name", "Ztimer (Debug)"
             resValue "string", "file_provider_authority", "com.zelcubes.timer.debug.fileprovider"
         }
     }
