@@ -76,6 +76,7 @@ public class WcaResultsFragment extends Fragment {
     private int shown = PAGE_SIZE;
     private Map<String, String[]> compInfo = null;
     private String historyEvent = null;
+    private TextView footer;
     private String lastShownId = null;
 
     @Nullable
@@ -90,6 +91,7 @@ public class WcaResultsFragment extends Fragment {
         scroll.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         scroll.setClipToPadding(false);
+        scroll.setVerticalScrollBarEnabled(false);
         scroll.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(64));
 
         LinearLayout page = new LinearLayout(requireContext());
@@ -102,7 +104,7 @@ public class WcaResultsFragment extends Fragment {
         LinearLayout row = new LinearLayout(requireContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        input = ui.input("Search competitors or competitions");
+        input = ui.input("Search");
         input.setOnEditorActionListener((v, actionId, event) -> {
             if (actionId == EditorInfo.IME_ACTION_SEARCH) {
                 search();
@@ -166,9 +168,10 @@ public class WcaResultsFragment extends Fragment {
         body = new LinearLayout(requireContext());
         body.setOrientation(LinearLayout.VERTICAL);
         page.addView(body, ui.matchWrap(0, 0, 0, 0));
+        footer = ui.status(12);
+        page.addView(footer, ui.matchWrap(4, 10, 4, 4));
 
-        status.setText("Search for a competitor (name or WCA ID like 2023CUAR02) or a competition. "
-                + "Open a competitor and tap the star to keep them here.");
+        status.setText("Search a name, WCA ID or competition. Star a profile to keep it here.");
         checkPendingPerson();
         return scroll;
     }
@@ -436,7 +439,7 @@ public class WcaResultsFragment extends Fragment {
                 suggestBox.addView(ui.text("Could not reach the WCA website.", 14, false, 0.8f),
                         ui.matchWrap(14, 12, 14, 12));
             } else if (people.isEmpty() && comps.isEmpty()) {
-                suggestBox.addView(ui.text("No competitors or competitions found.", 14, false, 0.8f),
+                suggestBox.addView(ui.text("Nothing found.", 14, false, 0.8f),
                         ui.matchWrap(14, 12, 14, 12));
             } else {
                 addSection(suggestBox, "COMPETITORS", people, 5, false, false);
@@ -452,7 +455,7 @@ public class WcaResultsFragment extends Fragment {
         hideSuggestions();
         String q = input.getText().toString().trim();
         if (q.isEmpty()) {
-            status.setText("Type a competitor, a WCA ID or a competition first.");
+            status.setText("Type a name, WCA ID or competition.");
             return;
         }
         if (WCA_ID.matcher(q).matches()) {
@@ -466,20 +469,21 @@ public class WcaResultsFragment extends Fragment {
 
     private void searchAll(String q) {
         status.setText("Searching...");
+        footer.setText("");
         body.removeAllViews();
         openId = null;
         fetchHits(q, (people, comps, failed) -> {
             if (!isAdded()) return;
             body.removeAllViews();
             if (failed) {
-                status.setText("Could not reach the WCA website. Check your connection and try again.");
+                status.setText("Can't reach WCA. Check your connection.");
                 return;
             }
             addSection(body, "COMPETITORS", people, 25, false, true);
             addSection(body, "COMPETITIONS", comps, 25, true, true);
             status.setText(people.isEmpty() && comps.isEmpty()
-                    ? "No competitors or competitions found."
-                    : "Tap a competitor to open their results, or a competition to open its page.");
+                    ? "Nothing found."
+                    : "Tap a result to open it.");
         });
     }
 
@@ -487,6 +491,7 @@ public class WcaResultsFragment extends Fragment {
 
     private void loadPerson(final String wcaId) {
         status.setText("Loading " + wcaId + "...");
+        footer.setText("");
         body.removeAllViews();
         openId = wcaId;
         WcaHttp.get(WCA + "/persons/" + Uri.encode(wcaId), new WcaHttp.Callback() {
@@ -527,9 +532,9 @@ public class WcaResultsFragment extends Fragment {
         } else {
             String why = WcaHttp.describe(requireContext(), error);
             String hint = error.contains("403")
-                    ? " The WCA website refused the request."
-                    : (why.startsWith("No internet") ? " Connect to the internet to open " + wcaId + "."
-                    : " Tap Refresh or search again to retry.");
+                    ? " WCA refused the request."
+                    : (why.startsWith("No internet") ? " Connect to open " + wcaId + "."
+                    : " Try again.");
             status.setText(why + "." + hint);
         }
     }
@@ -665,9 +670,11 @@ public class WcaResultsFragment extends Fragment {
             body.addView(head, ui.matchWrap(0, 4, 0, 4));
 
             if (fromCache) {
-                status.setText("Saved copy from " + dateTime(dataTime) + ". It may be out of date.");
+                status.setText("");
+                footer.setText("Saved copy \u00B7 " + dateTime(dataTime));
             } else {
-                status.setText("Live from the WCA website, fetched " + dateTime(dataTime) + ".");
+                status.setText("");
+                footer.setText("Live from WCA \u00B7 " + dateTime(dataTime));
             }
 
             addPersonalRecords(root.optJSONObject("personal_records"));
@@ -677,7 +684,7 @@ public class WcaResultsFragment extends Fragment {
             addHistory(allResults);
         } catch (Exception e) {
             e.printStackTrace();
-            status.setText("Unexpected data from the WCA website for " + openId + ".");
+            status.setText("Couldn't read data for " + openId + ".");
         }
     }
 
@@ -852,6 +859,26 @@ public class WcaResultsFragment extends Fragment {
     }
 
     /** Every result that set a world, continental or national record (rows tagged WR, CR, NR...). */
+    private boolean showRecordsTable = false, showPodiumsTable = false;
+
+    /** A heading that shows or hides its table when tapped. */
+    private void addToggleSection(String title, final View content, final boolean podiums) {
+        final TextView head = ui.label("", 18, true);
+        final String t = title;
+        final Runnable apply = () -> {
+            boolean on = podiums ? showPodiumsTable : showRecordsTable;
+            head.setText(t + (on ? "  \u25B4" : "  \u25BE"));
+            content.setVisibility(on ? View.VISIBLE : View.GONE);
+        };
+        head.setOnClickListener(v -> {
+            if (podiums) showPodiumsTable = !showPodiumsTable; else showRecordsTable = !showRecordsTable;
+            apply.run();
+        });
+        apply.run();
+        body.addView(head, ui.matchWrap(0, 12, 0, 6));
+        body.addView(content, ui.matchWrap(0, 0, 0, 0));
+    }
+
     private void addRecordsList(JSONArray results) {
         List<JSONObject> rows = new ArrayList<>();
         List<String> tags = new ArrayList<>();
@@ -873,7 +900,8 @@ public class WcaResultsFragment extends Fragment {
             if (c != 0) return c;
             return WcaFormat.eventOrder(fr.get(x).optString("event_id")) - WcaFormat.eventOrder(fr.get(y).optString("event_id"));
         });
-        body.addView(ui.label("Records", 18, true), ui.matchWrap(0, 12, 0, 6));
+        LinearLayout wrap = new LinearLayout(requireContext());
+        wrap.setOrientation(LinearLayout.VERTICAL);
         LinearLayout card = ui.card(false);
         card.setPadding(0, 0, 0, 0);
         android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(requireContext());
@@ -905,11 +933,12 @@ public class WcaResultsFragment extends Fragment {
             table.addView(line);
         }
         card.addView(hs);
-        body.addView(card, ui.matchWrap(0, 4, 0, 4));
+        wrap.addView(card, ui.matchWrap(0, 4, 0, 4));
         if (order.length > shownRows) {
-            body.addView(ui.text((order.length - shownRows) + " older records are not shown.", 12, false, 0.7f),
+            wrap.addView(ui.text("+" + (order.length - shownRows) + " older", 12, false, 0.7f),
                     ui.matchWrap(4, 2, 4, 4));
         }
+        addToggleSection("Records", wrap, false);
     }
 
     private static final String[][] DEMONYMS = {
@@ -973,7 +1002,8 @@ public class WcaResultsFragment extends Fragment {
             if (c != 0) return c;
             return WcaFormat.eventOrder(x.optString("event_id")) - WcaFormat.eventOrder(y.optString("event_id"));
         });
-        body.addView(ui.label("Championship podiums", 18, true), ui.matchWrap(0, 12, 0, 6));
+        LinearLayout wrap = new LinearLayout(requireContext());
+        wrap.setOrientation(LinearLayout.VERTICAL);
         LinearLayout card = ui.card(false);
         card.setPadding(0, 0, 0, 0);
         android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(requireContext());
@@ -999,14 +1029,37 @@ public class WcaResultsFragment extends Fragment {
             table.addView(line);
         }
         card.addView(hs);
-        body.addView(card, ui.matchWrap(0, 4, 0, 4));
-        body.addView(ui.text("Championships are recognised by the competition name.", 12, false, 0.7f),
-                ui.matchWrap(4, 2, 4, 4));
+        wrap.addView(card, ui.matchWrap(0, 4, 0, 4));
+        addToggleSection("Championship podiums", wrap, true);
     }
 
     private static final int W_COMP = 190, W_ROUND = 112, W_PLACE = 56, W_SINGLE = 100, W_AVG = 100, W_SOLVES = 290;
 
+    private LinearLayout historyBox;
+    private JSONArray historyResults;
+
     private void addHistory(JSONArray results) throws Exception {
+        historyResults = results;
+        historyBox = new LinearLayout(requireContext());
+        historyBox.setOrientation(LinearLayout.VERTICAL);
+        body.addView(historyBox, ui.matchWrap(0, 0, 0, 0));
+        refillHistory();
+    }
+
+    /** Rebuilds only the Previous results block, so the other tables keep their state. */
+    private void refillHistory() {
+        LinearLayout saved = body;
+        body = historyBox;
+        try {
+            historyBox.removeAllViews();
+            buildHistory(historyResults);
+        } catch (Exception ignored) {
+        } finally {
+            body = saved;
+        }
+    }
+
+    private void buildHistory(JSONArray results) throws Exception {
         List<JSONObject> all = new ArrayList<>();
         java.util.Set<String> evSet = new java.util.HashSet<>();
         for (int i = 0; i < results.length(); i++) {
@@ -1053,7 +1106,7 @@ public class WcaResultsFragment extends Fragment {
             item.setOnClickListener(v -> {
                 historyEvent = evId;
                 shown = PAGE_SIZE;
-                render();
+                refillHistory();
             });
             pick.addView(item, ui.lp(ui.dp(44), ui.dp(44), 0, 0, 4, 0));
         }
@@ -1178,7 +1231,7 @@ public class WcaResultsFragment extends Fragment {
             TextView more = ui.pill("Show more (" + (rows.size() - limit) + " left)", false);
             more.setOnClickListener(v -> {
                 shown += PAGE_SIZE;
-                render();
+                refillHistory();
             });
             body.addView(more, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 8, 0, 8));
         }

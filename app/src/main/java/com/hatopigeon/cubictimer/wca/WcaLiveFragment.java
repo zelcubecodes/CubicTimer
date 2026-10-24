@@ -135,6 +135,11 @@ public class WcaLiveFragment extends Fragment {
     private String recordsError = null;
     private int recordsShown = 10;
     private final List<String[]> records = new ArrayList<>();
+    private static final String REC_Q0 = "{ recentRecords { id tag type attemptResult result { person { name "
+            + "country { iso2 name } } round { number competitionEvent { event { id name } "
+            + "competition { id wcaId name startDate endDate } } } } } }";
+    private String pendingEv = null;
+    private int pendingRound = -1;
     private static final String REC_Q1 = "{ recentRecords { id tag type attemptResult result { person { name "
             + "country { iso2 name } } round { competitionEvent { event { id name } } } } } }";
     private static final String REC_Q2 = "{ recentRecords { tag type attemptResult result { person { name "
@@ -620,8 +625,7 @@ public class WcaLiveFragment extends Fragment {
                 String when = listLoaded ? " Showing the list from " + time(listFetchedAt) + "." : "";
                 listStatus.setText(listError + "." + when);
             } else if (listLoaded) {
-                listStatus.setText("Live data from WCA Live, fetched " + time(listFetchedAt)
-                        + ". " + items.size() + " competitions.");
+                listStatus.setText(time(listFetchedAt) + "  \u00B7  " + items.size() + " competitions");
             } else {
                 listStatus.setText("");
             }
@@ -715,7 +719,7 @@ public class WcaLiveFragment extends Fragment {
         recordsLoading = true;
         recordsError = null;
         renderRecords();
-        requestRecords(REC_Q1, true);
+        requestRecords(REC_Q0, true);
     }
 
     private void requestRecords(final String query, final boolean mayRetry) {
@@ -731,7 +735,10 @@ public class WcaLiveFragment extends Fragment {
                         JSONObject data = root.optJSONObject("data");
                         JSONArray arr = data == null ? null : data.optJSONArray("recentRecords");
                         if (arr == null) {
-                            if (mayRetry) { requestRecords(REC_Q2, false); return; }
+                            if (mayRetry) {
+                                requestRecords(query == REC_Q0 ? REC_Q1 : REC_Q2, query == REC_Q0);
+                                return;
+                            }
                             throw new Exception("no records field");
                         }
                         List<String[]> out = new ArrayList<>();
@@ -748,12 +755,19 @@ public class WcaLiveFragment extends Fragment {
                             if ((evName == null || evName.isEmpty() || evName.equals(evId)) && ev != null) {
                                 evName = ev.optString("name", evId);
                             }
+                            JSONObject cmp = ce == null ? null : ce.optJSONObject("competition");
                             out.add(new String[]{
                                     o.optString("tag"), o.optString("type"), evId, evName,
                                     String.valueOf(o.optLong("attemptResult")),
                                     person == null ? "" : person.optString("name"),
                                     country == null ? "" : country.optString("name"),
-                                    country == null ? "" : country.optString("iso2")});
+                                    country == null ? "" : country.optString("iso2"),
+                                    cmp == null ? "" : cmp.optString("id"),
+                                    cmp == null ? "" : cmp.optString("wcaId"),
+                                    cmp == null ? "" : cmp.optString("name"),
+                                    cmp == null ? "" : cmp.optString("startDate"),
+                                    cmp == null ? "" : cmp.optString("endDate"),
+                                    round == null ? "0" : String.valueOf(round.optInt("number"))});
                         }
                         records.clear();
                         records.addAll(out);
@@ -826,6 +840,20 @@ public class WcaLiveFragment extends Fragment {
             mid.addView(ui.text(who, 14, false, 0.8f));
             row.addView(mid, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
             ((LinearLayout.LayoutParams) mid.getLayoutParams()).weight = 1f;
+            if (r.length > 13 && !r[9].isEmpty()) {
+                final String[] rec = r;
+                row.setOnClickListener(v -> {
+                    Comp c = new Comp();
+                    c.id = rec[8];
+                    c.wcaId = rec[9];
+                    c.name = rec[10];
+                    c.start = rec[11];
+                    c.end = rec[12];
+                    pendingEv = rec[2];
+                    try { pendingRound = Integer.parseInt(rec[13]); } catch (Exception e) { pendingRound = -1; }
+                    openCompetition(c);
+                });
+            }
             card.addView(row, ui.matchWrap(0, 8, 0, 8));
         }
         if (limit < records.size()) {
@@ -1119,6 +1147,11 @@ public class WcaLiveFragment extends Fragment {
         String keepId = (eventIndex < events.size()) ? events.get(eventIndex).id : null;
         int keepRound = (eventIndex < events.size() && roundIndex < events.get(eventIndex).rounds.size())
                 ? events.get(eventIndex).rounds.get(roundIndex).number : -1;
+        if (pendingEv != null) {
+            keepId = pendingEv;
+            keepRound = pendingRound;
+            pendingEv = null;
+        }
         events = evs;
         people = ppl;
         eventIndex = 0;
@@ -1164,8 +1197,7 @@ public class WcaLiveFragment extends Fragment {
 
     private String statusText() {
         if (liveOk) {
-            return "LIVE  \u00B7  last updated " + time(detailFetchedAt)
-                    + (autoRefresh ? "  \u00B7  refreshes every 30s" : "  \u00B7  auto-refresh off");
+            return "LIVE  \u00B7  " + time(detailFetchedAt);
         }
         if (haveData) {
             return detailError + ". Showing data from " + time(detailFetchedAt)

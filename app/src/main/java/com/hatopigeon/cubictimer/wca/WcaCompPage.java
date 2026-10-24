@@ -1756,8 +1756,8 @@ public class WcaCompPage {
         LinearLayout header = tableRow(false, true);
         header.addView(cell("#", 36, true, Gravity.START));
         header.addView(cell("Name", 200, true, Gravity.START));
-        header.addView(cell("Best", 92, true, Gravity.END));
-        if (!noAvg) header.addView(cell("Average", 92, true, Gravity.END));
+        header.addView(cell("Best", 120, true, Gravity.START));
+        if (!noAvg) header.addView(cell("Average", 120, true, Gravity.START));
         header.addView(cell("Representing", 150, true, Gravity.START));
         for (int k = 0; k < maxAttempts; k++) header.addView(cell("Solve " + (k + 1), 84, true, Gravity.END));
         table.addView(header);
@@ -1773,11 +1773,11 @@ public class WcaCompPage {
             row.addView(nm);
             String bt = WcaFormat.formatResult(r.optLong("best"), resEvent, false);
             String bTag = regionTag(r, "regional_single_record");
-            row.addView(cell(bt + (bTag.isEmpty() ? "" : " " + bTag), 92, true, Gravity.END));
+            row.addView(resCell(bt, bTag));
             if (!noAvg) {
                 String av = WcaFormat.formatResult(r.optLong("average"), resEvent, true);
                 String aTag = regionTag(r, "regional_average_record");
-                row.addView(cell(av + (aTag.isEmpty() || av.isEmpty() ? "" : " " + aTag), 92, true, Gravity.END));
+                row.addView(resCell(av, av.isEmpty() ? "" : aTag));
             }
             String iso = WcaFlags.code(r.optString("country_iso2"));
             row.addView(cell(withFlag(countryName(iso), iso), 150, false, Gravity.START));
@@ -1796,6 +1796,13 @@ public class WcaCompPage {
     }
 
     // ---------------------------------------------------------------- Podiums tab
+
+    /** A result with its colour and record tag on the side, in a fixed-width column. */
+    private LinearLayout resCell(String value, String tag) {
+        LinearLayout c = ui.resultCell("", value, tag, 14, true, true);
+        c.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(120), ViewGroup.LayoutParams.WRAP_CONTENT));
+        return c;
+    }
 
     private static String regionTag(JSONObject r, String key) {
         if (!r.has(key) || r.isNull(key)) return "";
