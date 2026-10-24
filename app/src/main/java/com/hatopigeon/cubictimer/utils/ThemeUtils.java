@@ -84,7 +84,7 @@ public final class ThemeUtils {
      * @return The user's chosen preferred theme.
      */
     public static int getPreferredTheme() {
-        return getThemeStyleRes(Prefs.getString(R.string.pk_theme, "yellow"));
+        return getThemeStyleRes(Prefs.getString(R.string.pk_theme, "pixie_falls"));
     }
 
     public static int getPreferredTextStyle() {
