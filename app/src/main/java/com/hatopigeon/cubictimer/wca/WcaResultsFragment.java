@@ -92,7 +92,7 @@ public class WcaResultsFragment extends Fragment {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
-        scroll.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(64));
+        scroll.setPadding(ui.dp(12), ui.dp(80), ui.dp(12), ui.dp(64));
 
         LinearLayout page = new LinearLayout(requireContext());
         page.setOrientation(LinearLayout.VERTICAL);

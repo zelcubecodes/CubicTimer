@@ -170,7 +170,7 @@ public class WcaLiveFragment extends Fragment {
         FrameLayout frame = new FrameLayout(requireContext());
         frame.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        frame.setPadding(ui.dp(12), ui.dp(8), ui.dp(12), ui.dp(64));
+        frame.setPadding(ui.dp(12), ui.dp(80), ui.dp(12), ui.dp(64));
 
         listPage = buildListPage();
         detailPage = buildDetailPage();
@@ -300,7 +300,8 @@ public class WcaLiveFragment extends Fragment {
         LinearLayout tabCard = new LinearLayout(requireContext());
         tabCard.setOrientation(LinearLayout.HORIZONTAL);
         tabCard.setBackground(ui.rounded(ui.itemBg, ui.dp(8)));
-        String[] names = {"UPCOMING", "PAST MONTH", "FAVORITES", "RECENT"};
+        String[] names = {"UPCOMING", "PAST MONTH", "FAVORITES", "RECENT", "RIGHT NOW"};
+        final LinearLayout[] cols = new LinearLayout[names.length];
         for (int i = 0; i < names.length; i++) {
             final int mode = i;
             LinearLayout col = new LinearLayout(requireContext());
@@ -321,7 +322,11 @@ public class WcaLiveFragment extends Fragment {
             });
             tabTexts.add(t);
             tabLines.add(line);
-            tabCard.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            cols[i] = col;
+        }
+        // Right now comes first on screen; the other tabs keep their order.
+        for (int idx : new int[]{4, 0, 1, 2, 3}) {
+            tabCard.addView(cols[idx], new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         }
         styleTabs();
         page.addView(tabCard, ui.matchWrap(0, 0, 0, 8));
@@ -575,10 +580,10 @@ public class WcaLiveFragment extends Fragment {
 
     private void renderList() {
         listContainer.removeAllViews();
-        recordsBox.setVisibility(filterMode <= 1 && searchQuery == null ? View.VISIBLE : View.GONE);
+        recordsBox.setVisibility((filterMode <= 1 || filterMode == 4) && searchQuery == null ? View.VISIBLE : View.GONE);
         List<Comp> items = new ArrayList<>();
         final String today = isoDate(Calendar.getInstance());
-        if (filterMode <= 1) {
+        if (filterMode <= 1 || filterMode == 4) {
             if (searchQuery != null) {
                 items.addAll(loadedComps);
                 Collections.sort(items, new Comparator<Comp>() {
@@ -594,13 +599,14 @@ public class WcaLiveFragment extends Fragment {
                 for (Comp c : loadedComps) {
                     boolean finished = c.end.compareTo(today) < 0;
                     if (filterMode == 0 && !finished) items.add(c);
+                    if (filterMode == 4 && !finished && c.start.compareTo(today) <= 0) items.add(c);
                     if (filterMode == 1 && finished && c.end.compareTo(monthAgo) >= 0) items.add(c);
                 }
                 final int mode = filterMode;
                 Collections.sort(items, new Comparator<Comp>() {
                     @Override
                     public int compare(Comp a, Comp b) {
-                        if (mode == 0) {
+                        if (mode == 0 || mode == 4) {
                             int ra = statusRank(a), rb = statusRank(b);
                             if (ra != rb) return ra - rb;
                             return a.start.compareTo(b.start);   // soonest first
@@ -620,7 +626,7 @@ public class WcaLiveFragment extends Fragment {
             }
         }
 
-        if (filterMode <= 1) {
+        if (filterMode <= 1 || filterMode == 4) {
             if (listError != null) {
                 String when = listLoaded ? " Showing the list from " + time(listFetchedAt) + "." : "";
                 listStatus.setText(listError + "." + when);
@@ -634,8 +640,9 @@ public class WcaLiveFragment extends Fragment {
         }
 
         if (items.isEmpty()) {
-            String msg = filterMode == 2 ? "No favorite competitions yet. Tap the star on a competition."
-                    : filterMode == 3 ? "No recently viewed competitions yet."
+            String msg = filterMode == 2 ? "No favorites yet. Tap a star."
+                    : filterMode == 3 ? "Nothing viewed yet."
+                    : filterMode == 4 ? "Nothing is happening right now."
                     : (listError != null ? "" : "No competitions found.");
             if (!msg.isEmpty()) listContainer.addView(ui.text(msg, 15, false, 0.8f), ui.matchWrap(8, 12, 8, 12));
             return;
@@ -1319,6 +1326,7 @@ public class WcaLiveFragment extends Fragment {
             String v = o.optString(k, "").trim();
             if (v.isEmpty()) continue;
             String u = v.toUpperCase(Locale.US);
+            if (u.equals("PB")) return "PR";
             if (u.equals("WR") || u.equals("CR") || u.equals("NR") || u.equals("PR")) return u;
             if (u.endsWith("R") && u.length() <= 3) return v;
         }
@@ -1364,10 +1372,10 @@ public class WcaLiveFragment extends Fragment {
         String avg = WcaFormat.formatResult(r.average, eventId, true);
         String best = WcaFormat.formatResult(r.best, eventId, false);
         if (hasAverage && !avg.isEmpty()) {
-            right.addView(ui.resultCell("avg", avg, r.avgTag, 16, true));
+            right.addView(ui.resultCell("avg", avg, r.avgTag, 16, true, false, "avg"));
         }
         if (!best.isEmpty()) {
-            right.addView(ui.resultCell("best", best, r.singleTag, 13, false));
+            right.addView(ui.resultCell("best", best, r.singleTag, 13, false, false, "single"));
         }
         final Ev evNow = curEv;
         final Round rdNow = curRd;
@@ -1607,13 +1615,13 @@ public class WcaLiveFragment extends Fragment {
             box.addView(ui.text("Average", 13, false, 0.7f));
             LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            box.addView(ui.resultCell("", avg, row.avgTag, 26, true), alp);
+            box.addView(ui.resultCell("", avg, row.avgTag, 26, true, false, "avg"), alp);
         }
         if (!best.isEmpty()) {
             box.addView(ui.text("Best", 13, false, 0.7f), ui.matchWrap(0, 6, 0, 0));
             LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            box.addView(ui.resultCell("", best, row.singleTag, 20, false), blp);
+            box.addView(ui.resultCell("", best, row.singleTag, 20, false, false, "single"), blp);
         }
         box.addView(ui.text("Solves", 13, false, 0.7f), ui.matchWrap(0, 12, 0, 4));
         String[] at = attemptStrings(row.attempts, ev.id);

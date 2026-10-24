@@ -317,6 +317,12 @@ public final class WcaUi {
 
     /** Same, but start-aligned (for table columns whose header is also start-aligned). */
     public LinearLayout resultCell(String label, String value, String tag, float sp, boolean bold, boolean start) {
+        return resultCell(label, value, tag, sp, bold, start, "");
+    }
+
+    /** Same, with the badge saying what the record is for: "single" or "avg". */
+    public LinearLayout resultCell(String label, String value, String tag, float sp, boolean bold, boolean start,
+                                   String kind) {
         LinearLayout f = new LinearLayout(ctx);
         f.setOrientation(LinearLayout.HORIZONTAL);
         f.setGravity(start ? (Gravity.START | Gravity.CENTER_VERTICAL) : Gravity.END);
@@ -333,9 +339,13 @@ public final class WcaUi {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     (start ? Gravity.CENTER_VERTICAL : Gravity.TOP) | Gravity.START);
             bp.leftMargin = dp(2);
-            slot.addView(badge(tag), bp);
+            TextView b = badge(tag);
+            if (kind != null && !kind.isEmpty()) b.setText(tag + " " + kind);
+            slot.addView(b, bp);
         }
-        f.addView(slot, new LinearLayout.LayoutParams(dp(28), ViewGroup.LayoutParams.WRAP_CONTENT));
+        boolean wide = has && kind != null && !kind.isEmpty();
+        f.addView(slot, new LinearLayout.LayoutParams(wide ? ViewGroup.LayoutParams.WRAP_CONTENT : dp(28),
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         return f;
     }
 
