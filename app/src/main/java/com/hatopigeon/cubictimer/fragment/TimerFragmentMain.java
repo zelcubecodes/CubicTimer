@@ -763,6 +763,21 @@ public class TimerFragmentMain extends BaseFragment implements DialogListenerMes
         }
     }
 
+    /** Fades a top bar item in or out, the same way the other bar buttons change. */
+    private void fade(final View v, boolean show) {
+        if (v == null) return;
+        v.animate().cancel();
+        if (show) {
+            if (v.getVisibility() != View.VISIBLE) {
+                v.setAlpha(0f);
+                v.setVisibility(View.VISIBLE);
+            }
+            v.animate().alpha(1f).setDuration(200).start();
+        } else if (v.getVisibility() != View.GONE) {
+            v.animate().alpha(0f).setDuration(200).withEndAction(() -> v.setVisibility(View.GONE)).start();
+        }
+    }
+
     /**
      * Sets the page's toolbar buttons and other things
      *
@@ -786,20 +801,20 @@ public class TimerFragmentMain extends BaseFragment implements DialogListenerMes
         View recordsBtn = mToolbar.findViewById(R.id.nav_button_records);
         View rankingsBtn = mToolbar.findViewById(R.id.nav_button_rankings);
         if (wcaTitle != null && recordsBtn != null && rankingsBtn != null) {
-            wcaTitle.setVisibility(wca ? View.VISIBLE : View.GONE);
-            recordsBtn.setVisibility(wca ? View.VISIBLE : View.GONE);
-            rankingsBtn.setVisibility(wca ? View.VISIBLE : View.GONE);
-            puzzleSpinnerLayout.setVisibility(wca ? View.GONE : View.VISIBLE);
-            navButtonCategory.setVisibility(wca ? View.GONE : View.VISIBLE);
+            fade(wcaTitle, wca);
+            fade(recordsBtn, wca);
+            fade(rankingsBtn, wca);
+            fade(puzzleSpinnerLayout, !wca);
+            fade(navButtonCategory, !wca);
             if (wca) {
                 wcaTitle.setText(pageNum == RESULTS_PAGE ? "WCA Results" : "WCA Live");
                 recordsBtn.setOnClickListener(v -> startActivity(new android.content.Intent(requireContext(),
                         com.hatopigeon.cubictimer.activity.RecordsActivity.class)));
                 rankingsBtn.setOnClickListener(v -> startActivity(new android.content.Intent(requireContext(),
                         com.hatopigeon.cubictimer.activity.RankingsActivity.class)));
-                if (navButtonHistory != null) navButtonHistory.setVisibility(View.GONE);
-                if (navButtonBluetooth != null) navButtonBluetooth.setVisibility(View.GONE);
-                if (puzzleNumber != null) puzzleNumber.setVisibility(View.GONE);
+                fade(navButtonHistory, false);
+                fade(navButtonBluetooth, false);
+                fade(puzzleNumber, false);
                 return;
             }
         }
