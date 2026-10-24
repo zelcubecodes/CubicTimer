@@ -257,7 +257,6 @@ public class WcaLiveFragment extends Fragment {
         LinearLayout page = new LinearLayout(requireContext());
         page.setOrientation(LinearLayout.VERTICAL);
 
-        page.addView(ui.text("WCA Live", 22, true, 1f), ui.matchWrap(4, 0, 4, 4));
 
         LinearLayout searchRow = new LinearLayout(requireContext());
         searchRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -300,16 +299,17 @@ public class WcaLiveFragment extends Fragment {
         LinearLayout tabCard = new LinearLayout(requireContext());
         tabCard.setOrientation(LinearLayout.HORIZONTAL);
         tabCard.setBackground(ui.rounded(ui.itemBg, ui.dp(8)));
-        String[] names = {"UPCOMING", "PAST MONTH", "FAVORITES", "RECENT", "RIGHT NOW"};
+        String[] names = {"Upcoming", "Past", "Starred", "Recent", "Right now"};
         final LinearLayout[] cols = new LinearLayout[names.length];
         for (int i = 0; i < names.length; i++) {
             final int mode = i;
             LinearLayout col = new LinearLayout(requireContext());
             col.setOrientation(LinearLayout.VERTICAL);
-            TextView t = ui.text(names[i], 12, true, 1f);
+            TextView t = ui.text(names[i], 13, true, 1f);
             t.setTextColor(ui.itemText);
             t.setGravity(Gravity.CENTER);
-            t.setPadding(ui.dp(4), ui.dp(14), ui.dp(4), ui.dp(12));
+            t.setSingleLine(true);
+            t.setPadding(ui.dp(2), ui.dp(12), ui.dp(2), ui.dp(10));
             View line = new View(requireContext());
             col.addView(t, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -485,6 +485,15 @@ public class WcaLiveFragment extends Fragment {
         if (!c.start.isEmpty()) mid.addView(ui.text(fmtDates(c.start, c.end), 12, false, 0.8f));
         row.addView(mid, ui.lp(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 0, 0));
         ((LinearLayout.LayoutParams) mid.getLayoutParams()).weight = 1f;
+        final ImageView star = ui.iconButton(store.isFavoriteComp(c.wcaId)
+                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.safe);
+        star.setOnClickListener(v -> {
+            store.toggleFavoriteComp(c.wcaId, c.name);
+            star.setImageDrawable(ui.tinted(store.isFavoriteComp(c.wcaId)
+                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.safe));
+            if (filterMode == 2) renderList();
+        });
+        row.addView(star);
         ui.recolor(row, ui.text, ui.itemText);
         row.setOnClickListener(v -> {
             hideKeyboard();
@@ -598,7 +607,7 @@ public class WcaLiveFragment extends Fragment {
                 String monthAgo = isoDate(pm);
                 for (Comp c : loadedComps) {
                     boolean finished = c.end.compareTo(today) < 0;
-                    if (filterMode == 0 && !finished) items.add(c);
+                    if (filterMode == 0 && !finished && c.start.compareTo(today) > 0) items.add(c);
                     if (filterMode == 4 && !finished && c.start.compareTo(today) <= 0) items.add(c);
                     if (filterMode == 1 && finished && c.end.compareTo(monthAgo) >= 0) items.add(c);
                 }

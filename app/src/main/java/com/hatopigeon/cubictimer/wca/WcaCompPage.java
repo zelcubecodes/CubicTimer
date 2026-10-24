@@ -1,6 +1,7 @@
 package com.hatopigeon.cubictimer.wca;
 
 import android.content.Context;
+import com.hatopigeon.cubicify.R;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -160,7 +161,16 @@ public class WcaCompPage {
         web.setOnClickListener(v -> ctx.startActivity(new Intent(Intent.ACTION_VIEW,
                 Uri.parse("https://www.worldcubeassociation.org/competitions/" + Uri.encode(compId)))
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
-        actions.addView(web);
+        actions.addView(web, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
+        final android.widget.ImageView star = ui.iconButton(store.isFavoriteComp(compId)
+                ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.text);
+        star.setOnClickListener(v -> {
+            store.toggleFavoriteComp(compId, compName);
+            star.setImageDrawable(ui.tinted(store.isFavoriteComp(compId)
+                    ? R.drawable.ic_wca_star_filled : R.drawable.ic_wca_star_outline, 24, ui.text));
+        });
+        actions.addView(star);
         HorizontalScrollView actionScroll = new HorizontalScrollView(ctx);
         actionScroll.setHorizontalScrollBarEnabled(false);
         actionScroll.addView(actions);

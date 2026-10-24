@@ -99,7 +99,6 @@ public class WcaResultsFragment extends Fragment {
         scroll.addView(page, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        page.addView(ui.text("WCA Results", 22, true, 1f), ui.matchWrap(4, 4, 4, 8));
 
         LinearLayout row = new LinearLayout(requireContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -141,17 +140,6 @@ public class WcaResultsFragment extends Fragment {
                 uiHandler.postDelayed(suggestRunnable, 350);
             }
         });
-
-        TextView records = ui.pill("Records", false);
-        records.setOnClickListener(v -> startActivity(new Intent(requireContext(), RecordsActivity.class)));
-        TextView rankings = ui.pill("Rankings", false);
-        rankings.setOnClickListener(v -> startActivity(new Intent(requireContext(),
-                com.hatopigeon.cubictimer.activity.RankingsActivity.class)));
-        LinearLayout recordsRow = new LinearLayout(requireContext());
-        recordsRow.setOrientation(LinearLayout.HORIZONTAL);
-        recordsRow.addView(records, ui.lp(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, 0, 0, 8, 0));
-        recordsRow.addView(rankings);
-        page.addView(recordsRow, ui.matchWrap(0, 0, 0, 8));
 
         page.addView(ui.text("Starred competitors", 13, true, 0.8f), ui.matchWrap(4, 0, 4, 4));
         android.widget.HorizontalScrollView pinScroll = new android.widget.HorizontalScrollView(requireContext());
