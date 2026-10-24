@@ -1066,6 +1066,8 @@ public class WcaLiveFragment extends Fragment {
                 if (!isAdded() || currentComp != comp) return;
                 try {
                     parseResults(body);
+                    applyTags();
+                    fetchTags(comp);
                     haveData = true;
                     liveOk = true;
                     detailError = null;
@@ -1089,6 +1091,94 @@ public class WcaLiveFragment extends Fragment {
                 scheduleAuto();
             }
         });
+    }
+
+    // ---------------------------------------------------------------- record tags (WR, CR, NR, PR)
+
+    private final Map<String, String[]> tagMap = new HashMap<>();
+    private String tagMapFor = "";
+    private boolean fetchingTags;
+
+    private static String personKey(String wcaId, String name) {
+        return wcaId != null && !wcaId.isEmpty() ? wcaId : "n:" + name;
+    }
+
+    /** Puts known record tags on the rows that have none. */
+    private void applyTags() {
+        if (events == null || people == null || currentComp == null || !tagMapFor.equals(currentComp.id)) return;
+        for (Ev ev : events) {
+            for (Round rd : ev.rounds) {
+                for (Row row : rd.rows) {
+                    Person p = people.get(row.personId);
+                    if (p == null) continue;
+                    String[] t = tagMap.get(ev.id + "|" + rd.number + "|" + personKey(p.wcaId, p.name));
+                    if (t == null) continue;
+                    if (row.singleTag.isEmpty()) row.singleTag = t[0];
+                    if (row.avgTag.isEmpty()) row.avgTag = t[1];
+                }
+            }
+        }
+    }
+
+    /** WCA Live's results feed has no record tags, so they come from its GraphQL API. */
+    private void fetchTags(final Comp comp) {
+        if (fetchingTags || comp == null || comp.id.isEmpty()) return;
+        fetchingTags = true;
+        try {
+            JSONObject b = new JSONObject();
+            b.put("query", "{ competition(id: \"" + comp.id + "\") { competitionEvents { event { id } "
+                    + "rounds { number results { singleRecordTag averageRecordTag "
+                    + "person { name wcaId } } } } } }");
+            WcaHttp.postJson(API, b.toString(), new WcaHttp.Callback() {
+                @Override
+                public void onSuccess(String text) {
+                    fetchingTags = false;
+                    if (!isAdded() || currentComp != comp) return;
+                    try {
+                        JSONObject data = new JSONObject(text).optJSONObject("data");
+                        JSONObject c = data == null ? null : data.optJSONObject("competition");
+                        JSONArray ces = c == null ? null : c.optJSONArray("competitionEvents");
+                        if (ces == null) return;
+                        Map<String, String[]> m = new HashMap<>();
+                        for (int i = 0; i < ces.length(); i++) {
+                            JSONObject ce = ces.getJSONObject(i);
+                            String evId = ce.getJSONObject("event").optString("id");
+                            JSONArray rds = ce.optJSONArray("rounds");
+                            if (rds == null) continue;
+                            for (int j = 0; j < rds.length(); j++) {
+                                JSONObject rd = rds.getJSONObject(j);
+                                JSONArray rs = rd.optJSONArray("results");
+                                if (rs == null) continue;
+                                for (int k = 0; k < rs.length(); k++) {
+                                    JSONObject r = rs.getJSONObject(k);
+                                    String st = tagOf(r, "singleRecordTag");
+                                    String at = tagOf(r, "averageRecordTag");
+                                    if (st.isEmpty() && at.isEmpty()) continue;
+                                    JSONObject pj = r.optJSONObject("person");
+                                    if (pj == null) continue;
+                                    String key = evId + "|" + rd.optInt("number") + "|"
+                                            + personKey(pj.isNull("wcaId") ? "" : pj.optString("wcaId"), pj.optString("name"));
+                                    m.put(key, new String[]{st, at});
+                                }
+                            }
+                        }
+                        tagMap.clear();
+                        tagMap.putAll(m);
+                        tagMapFor = comp.id;
+                        applyTags();
+                        renderResults();
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                @Override
+                public void onError(String message) {
+                    fetchingTags = false;
+                }
+            });
+        } catch (Exception e) {
+            fetchingTags = false;
+        }
     }
 
     private void parseResults(String body) throws Exception {
