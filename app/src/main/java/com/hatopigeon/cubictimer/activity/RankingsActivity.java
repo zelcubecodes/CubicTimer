@@ -102,7 +102,7 @@ public class RankingsActivity extends AppCompatActivity {
     }
 
     private TextView tv(String s, float sp, boolean bold, int color) {
-        TextView t = new TextView(this);
+        TextView t = new com.hatopigeon.cubictimer.wca.FlagTextView(this);
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(color);

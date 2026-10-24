@@ -184,7 +184,7 @@ public class RecordsActivity extends AppCompatActivity {
     }
 
     private TextView text(String s, float sp, boolean bold, float alpha) {
-        TextView t = new TextView(this);
+        TextView t = new com.hatopigeon.cubictimer.wca.FlagTextView(this);
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(mTextColor);

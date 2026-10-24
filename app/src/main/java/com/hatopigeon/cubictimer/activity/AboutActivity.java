@@ -27,16 +27,12 @@ import de.psdev.licensesdialog.LicensesDialog;
 
 public class AboutActivity extends AppCompatActivity {
 
-    private final static String APP_TITLE = "Cubic Timer";
-    private final static String APP_PNAME = "com.hatopigeon.cubictimer";
-
-    @BindView(R.id.rateButton)        AppCompatTextView rateButton;
+    private final static String APP_TITLE = "Ztimer";
     @BindView(R.id.feedbackButton)    AppCompatTextView feedbackButton;
     @BindView(R.id.licenseButton)     AppCompatTextView licenseButton;
     @BindView(R.id.testersButton)     AppCompatTextView testersButton;
     @BindView(R.id.sourceButton)      AppCompatTextView sourceButton;
     @BindView(R.id.appVersion)        AppCompatTextView appVersion;
-    @BindView(R.id.translateButton)    AppCompatTextView translateButton;
     @BindView(R.id.translatorsButton) AppCompatTextView translatorsButton;
     @BindView(R.id.contributorsButton)AppCompatTextView contributorsButton;
     @BindView(R.id.back)               View     backButton;
@@ -46,22 +42,13 @@ public class AboutActivity extends AppCompatActivity {
         public void onClick(View view) {
             switch (view.getId()) {
                 case R.id.feedbackButton:
-                    Intent emailIntent = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + "akira.hatoya@gmail.com"));
-                    emailIntent.putExtra(Intent.EXTRA_SUBJECT, "Feedback");
-                    startActivity(Intent.createChooser(emailIntent, getString(R.string.send_email_title)));
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/zelcubecodes/CubicTimer/issues")));
                     break;
                 case R.id.licenseButton:
                     new LicensesDialog.Builder(AboutActivity.this)
                         .setNotices(R.raw.notices_app)
                         .build()
                         .show();
-                    break;
-                case R.id.rateButton:
-                    try {
-                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + APP_PNAME)));
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
                     break;
                 case R.id.testersButton:
                     ThemeUtils.roundAndShowDialog(AboutActivity.this, new MaterialDialog.Builder(AboutActivity.this)
@@ -87,10 +74,6 @@ public class AboutActivity extends AppCompatActivity {
                 case R.id.sourceButton:
                     Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/hato-ya/CubicTimer"));
                     startActivity(browserIntent);
-                    break;
-                case R.id.translateButton:
-                    Intent translateBrowserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse("https://crowdin.com/project/cubic-timer"));
-                    startActivity(translateBrowserIntent);
                     break;
             }
         }
@@ -131,14 +114,16 @@ public class AboutActivity extends AppCompatActivity {
             e.printStackTrace();
         }
 
+        AppCompatTextView creatorText = (AppCompatTextView) findViewById(R.id.creator);
+        creatorText.setText(R.string.about_creator);
+        creatorText.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+
         feedbackButton.setOnClickListener(clickListener);
         licenseButton.setOnClickListener(clickListener);
-        rateButton.setOnClickListener(clickListener);
         testersButton.setOnClickListener(clickListener);
         sourceButton.setOnClickListener(clickListener);
         translatorsButton.setOnClickListener(clickListener);
         contributorsButton.setOnClickListener(clickListener);
-        translateButton.setOnClickListener(clickListener);
 
         InsetsUtils.applySafeInsetsPadding(findViewById(R.id.activity_about), false);
     }
