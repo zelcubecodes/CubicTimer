@@ -16,8 +16,8 @@ jobs:
           java-version: 17
       - run: chmod +x gradlew
       - run: ./gradlew assembleRelease
-      - run: mv app/build/outputs/apk/release/*.apk CubicTimer.apk
+      - run: mv app/build/outputs/apk/release/*.apk ZTimer.apk
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          files: CubicTimer.apk
+          files: ZTimer.apk
